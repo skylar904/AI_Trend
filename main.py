@@ -1,13 +1,25 @@
 import argparse
+import json
 import feedparser
 from datetime import datetime
 
 from cleaning import clean_article, dedupe_articles, is_probably_ai_related
 from feeds import RSS_FEEDS
 from report import generate_markdown_report, save_report
-from database import init_db, is_article_exists_by_identity, save_article
+from database import (
+    init_db,
+    is_article_exists_by_identity,
+    link_article_entity,
+    save_article,
+    upsert_entity,
+)
 from summarizer import analyze_article
-from trend_config import DEFAULT_SOURCE_WEIGHT, MAX_DAILY_ARTICLES, MIN_RELEVANCE_SCORE
+from trend_config import (
+    DEFAULT_SOURCE_WEIGHT,
+    MAX_DAILY_ARTICLES,
+    MIN_RELEVANCE_SCORE,
+    TREND_SCORE_WEIGHTS,
+)
 
 
 def fetch_feed(feed):
@@ -30,18 +42,40 @@ def fetch_feed(feed):
     return articles
 
 
-def calculate_trend_score(article, analysis):
+def calculate_trend_components(article, analysis):
     source_weight = float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT))
     relevance_score = int(analysis.get("relevance_score", 0))
     importance_score = int(analysis.get("importance_score", 0))
+    entities = analysis.get("entities", [])
+    entity_count = min(len(entities), 4)
 
-    return round(
-        relevance_score * 0.38
-        + importance_score * 0.42
-        + source_weight * 10
-        + (8 if article.get("link") else 0),
-        2,
-    )
+    components = {
+        "relevance": round(relevance_score * TREND_SCORE_WEIGHTS["relevance"], 2),
+        "importance": round(importance_score * TREND_SCORE_WEIGHTS["importance"], 2),
+        "source": round(source_weight * TREND_SCORE_WEIGHTS["source"], 2),
+        "entity": round(entity_count * TREND_SCORE_WEIGHTS["entity"], 2),
+        "recency": TREND_SCORE_WEIGHTS["recency"],
+    }
+    return components
+
+
+def calculate_trend_score(components):
+    return round(sum(float(value) for value in components.values()), 2)
+
+
+def build_trend_reason(article, analysis, components):
+    entities = analysis.get("entities", [])
+    entity_names = [entity["canonical_name"] for entity in entities[:3]]
+    reasons = [
+        f"AI 相關性 {analysis.get('relevance_score', 0)} 分",
+        f"重要性 {analysis.get('importance_score', 0)} 分",
+        f"來源權重貢獻 {components['source']} 分",
+    ]
+    if entity_names:
+        reasons.append(f"提到 {'、'.join(entity_names)} 等實體")
+    else:
+        reasons.append("未抽出明確工具/模型實體")
+    return "；".join(reasons) + "。"
 
 
 def collect_candidates():
@@ -117,19 +151,38 @@ def main():
         article["ai_category"] = analysis["category"]
         article["relevance_score"] = analysis["relevance_score"]
         article["importance_score"] = analysis["importance_score"]
-        article["trend_score"] = calculate_trend_score(article, analysis)
+        trend_components = calculate_trend_components(article, analysis)
+        article["trend_score"] = calculate_trend_score(trend_components)
         article["reason"] = analysis["reason"]
         article["ai_summary"] = analysis["summary"]
+        article["trend_components"] = json.dumps(trend_components, ensure_ascii=False)
+        article["trend_reason"] = build_trend_reason(article, analysis, trend_components)
         article["collected_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        article_id = None
         if not args.dry_run:
-            save_article(article)
+            article_id = save_article(article)
+            if article_id:
+                for entity in analysis.get("entities", []):
+                    entity_id = upsert_entity(entity, article["trend_score"])
+                    link_article_entity(
+                        article_id,
+                        entity_id,
+                        entity.get("confidence", 0),
+                        entity.get("evidence", ""),
+                    )
+
         all_new_articles.append(article)
+        entity_names = [
+            entity["canonical_name"] for entity in analysis.get("entities", [])
+        ]
         print(
             "已收錄："
             f"{article['title']} "
             f"(相關 {article['relevance_score']} / 重要 {article['importance_score']} / 趨勢 {article['trend_score']})"
         )
+        if entity_names:
+            print(f"關聯實體：{'、'.join(entity_names)}")
 
     if not all_new_articles:
         print("\n今天沒有新的文章。")

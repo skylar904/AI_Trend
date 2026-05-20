@@ -24,3 +24,11 @@ export function getArticles(filters) {
 export function getArticle(id) {
   return request(`/api/articles/${id}`);
 }
+
+export function getEntities() {
+  return request("/api/entities");
+}
+
+export function getTopTrends(limit = 10) {
+  return request(`/api/trends/top?limit=${limit}`);
+}

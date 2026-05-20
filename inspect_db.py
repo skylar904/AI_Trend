@@ -48,9 +48,19 @@ def main():
             cursor,
             """
             SELECT title, source, COALESCE(ai_category, category, '') AS category,
-                   relevance_score, importance_score, trend_score, created_at
+                   relevance_score, importance_score, trend_score, trend_reason, created_at
             FROM articles
             ORDER BY trend_score DESC, created_at DESC
+            LIMIT 10
+            """,
+        )
+
+        top_entities = fetch_all(
+            cursor,
+            """
+            SELECT canonical_name, entity_type, mention_count, trend_score, last_seen_at
+            FROM entities
+            ORDER BY trend_score DESC, mention_count DESC, canonical_name
             LIMIT 10
             """,
         )
@@ -80,6 +90,19 @@ def main():
                 f"{index}. [{row['trend_score']}] {safe_text(row['title'])} "
                 f"({safe_text(row['source'])} / {safe_text(row['category'])} / "
                 f"相關 {row['relevance_score']} / 重要 {row['importance_score']})"
+            )
+            if row["trend_reason"]:
+                print(f"   - {safe_text(row['trend_reason'])}")
+    else:
+        print("- 尚無資料")
+
+    print("\n熱門實體 Top 10：")
+    if top_entities:
+        for index, row in enumerate(top_entities, start=1):
+            print(
+                f"{index}. [{row['trend_score']}] {safe_text(row['canonical_name'])} "
+                f"({safe_text(row['entity_type'])} / 提及 {row['mention_count']} / "
+                f"最新 {row['last_seen_at']})"
             )
     else:
         print("- 尚無資料")

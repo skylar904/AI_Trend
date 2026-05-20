@@ -5,7 +5,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from cleaning import is_probably_ai_related
-from trend_config import CATEGORIES
+from entities import normalize_extracted_entities
+from trend_config import CATEGORIES, ENTITY_TYPES
 
 load_dotenv()
 
@@ -60,6 +61,7 @@ def fallback_analysis(article, error=None):
         "importance_score": 45 if related else 10,
         "reason": reason,
         "summary": summary,
+        "entities": [],
     }
 
 
@@ -75,6 +77,7 @@ def analyze_article(article):
     summary = article.get("summary", "")
     link = article.get("link", "")
     categories = "、".join(CATEGORIES)
+    entity_types = "、".join(ENTITY_TYPES)
 
     prompt = f"""
 你是一個 AI 科技趨勢情報系統的資料分析器。
@@ -92,6 +95,18 @@ def analyze_article(article):
 - category：必須從可用分類中選一個。
 - reason：用一句繁體中文說明為什麼收錄或略過。
 - summary：若 should_include 為 true，請輸出下列四段 Markdown；若 false，仍用 1 句話說明略過原因。
+- entities：抽出文章提到的 AI 工具、公司、模型、框架、產品。若沒有明確提到，回傳空陣列。
+
+entity type 只能使用：
+{entity_types}
+
+entity 抽取規則：
+- name：文章中的原始名稱。
+- canonical_name：合併後的標準名稱，例如「Google Gemini」「Gemini Flash」可標準化成「Gemini」。
+- type：tool / company / model / framework / product / other 其中之一。
+- confidence：0~1，越高代表越確定。
+- evidence：文章中支持這個 entity 的短句或原因。
+- 不要把「AI」「machine learning」「tool」這種泛稱當作 entity。
 
 summary 格式：
 ### 中文摘要
@@ -128,7 +143,16 @@ RSS 原始摘要：
   "relevance_score": 80,
   "importance_score": 70,
   "reason": "一句話原因",
-  "summary": "Markdown 摘要"
+  "summary": "Markdown 摘要",
+  "entities": [
+    {{
+      "name": "Cursor AI",
+      "canonical_name": "Cursor",
+      "type": "tool",
+      "confidence": 0.9,
+      "evidence": "文章標題或摘要提到 Cursor AI"
+    }}
+  ]
 }}
 """
 
@@ -152,6 +176,7 @@ RSS 原始摘要：
         "importance_score": clamp_score(data.get("importance_score")),
         "reason": str(data.get("reason") or "").strip(),
         "summary": str(data.get("summary") or "").strip(),
+        "entities": normalize_extracted_entities(data.get("entities", [])),
     }
 
 

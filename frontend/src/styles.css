@@ -173,6 +173,13 @@ button {
   margin-top: 22px;
 }
 
+.muted-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -245,10 +252,27 @@ button {
   background: #f1f8f5;
 }
 
-.source {
-  display: inline-block;
+.card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 9px;
+}
+
+.source {
   color: var(--amber);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.score-badge {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid rgba(13, 123, 102, 0.28);
+  border-radius: 7px;
+  color: #074d40;
+  background: var(--accent-soft);
   font-size: 12px;
   font-weight: 800;
 }
@@ -273,6 +297,39 @@ button {
   margin-top: 12px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.entity-list,
+.entity-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.entity-row {
+  margin-top: 12px;
+}
+
+.entity-row span,
+.entity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: #fbfaf6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.entity-pill small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .detail-panel {
@@ -316,6 +373,70 @@ button {
   background: var(--accent);
   font-weight: 800;
   text-decoration: none;
+}
+
+.trend-box {
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
+.trend-box > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.trend-box span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.trend-box strong {
+  color: var(--accent);
+  font-size: 26px;
+}
+
+.trend-box p {
+  margin: 0 0 14px;
+  color: var(--ink);
+  line-height: 1.75;
+}
+
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.component-grid span {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.component-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.detail-entities {
+  margin: 0 0 22px;
+}
+
+.detail-entities h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
 }
 
 .summary {
@@ -380,5 +501,9 @@ button {
 
   .article-detail h2 {
     font-size: 24px;
+  }
+
+  .component-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { getArticle, getArticles, getStats } from "./api";
+import { getArticle, getArticles, getEntities, getStats } from "./api";
 
 const stats = ref({
   total: 0,
@@ -9,6 +9,7 @@ const stats = ref({
   latest_created: "",
 });
 const articles = ref([]);
+const entities = ref([]);
 const selectedArticle = ref(null);
 const loading = ref(true);
 const detailLoading = ref(false);
@@ -24,6 +25,7 @@ let searchTimer = null;
 
 const activeSourceLabel = computed(() => filters.source || "全部來源");
 const activeCategoryLabel = computed(() => filters.category || "全部分類");
+const topEntities = computed(() => entities.value.slice(0, 8));
 
 function plainPreview(text) {
   return String(text || "")
@@ -52,8 +54,44 @@ function summaryBlocks(markdown) {
   return blocks;
 }
 
+function formatTrendScore(value) {
+  const score = Number(value || 0);
+  return score ? score.toFixed(1) : "0";
+}
+
+function trendComponentEntries(components) {
+  const labels = {
+    relevance: "相關性",
+    importance: "重要性",
+    source: "來源權重",
+    entity: "實體訊號",
+    recency: "近期性",
+  };
+  return Object.entries(components || {}).map(([key, value]) => ({
+    key,
+    label: labels[key] || key,
+    value: Number(value || 0).toFixed(1),
+  }));
+}
+
+function entityTypeLabel(type) {
+  const labels = {
+    tool: "工具",
+    company: "公司",
+    model: "模型",
+    framework: "框架",
+    product: "產品",
+    other: "其他",
+  };
+  return labels[type] || "其他";
+}
+
 async function loadStats() {
   stats.value = await getStats();
+}
+
+async function loadEntities() {
+  entities.value = await getEntities();
 }
 
 async function loadArticles() {
@@ -110,6 +148,7 @@ watch(
 
 onMounted(async () => {
   await loadStats();
+  await loadEntities();
   await loadArticles();
 });
 </script>
@@ -157,6 +196,17 @@ onMounted(async () => {
           type="search"
           placeholder="搜尋標題、摘要或關鍵字"
         />
+
+        <div class="filter-section">
+          <p>熱門實體</p>
+          <div v-if="topEntities.length" class="entity-list">
+            <span v-for="entity in topEntities" :key="entity.id" class="entity-pill">
+              {{ entity.canonical_name }}
+              <small>{{ entityTypeLabel(entity.entity_type) }} · {{ entity.mention_count }}</small>
+            </span>
+          </div>
+          <p v-else class="muted-note">尚未建立實體資料。</p>
+        </div>
 
         <div class="filter-section">
           <p>來源</p>
@@ -225,9 +275,17 @@ onMounted(async () => {
             type="button"
             @click="selectArticle(article.id)"
           >
-            <span class="source">{{ article.source }}</span>
+            <div class="card-topline">
+              <span class="source">{{ article.source }}</span>
+              <span class="score-badge">趨勢 {{ formatTrendScore(article.trend_score) }}</span>
+            </div>
             <h3>{{ article.title }}</h3>
             <p>{{ plainPreview(article.preview) }}</p>
+            <div v-if="article.entities?.length" class="entity-row">
+              <span v-for="entity in article.entities.slice(0, 3)" :key="entity.id">
+                {{ entity.canonical_name }}
+              </span>
+            </div>
             <div class="card-footer">
               <span>{{ article.category }}</span>
               <span>{{ article.published || article.created_at }}</span>
@@ -247,6 +305,32 @@ onMounted(async () => {
           </div>
           <h2>{{ selectedArticle.title }}</h2>
           <a :href="selectedArticle.link" target="_blank" rel="noreferrer">開啟原文</a>
+
+          <section class="trend-box" aria-label="趨勢分數">
+            <div>
+              <span>趨勢分數</span>
+              <strong>{{ formatTrendScore(selectedArticle.trend_score) }}</strong>
+            </div>
+            <p>{{ selectedArticle.trend_reason || "尚無分數解釋。" }}</p>
+            <div class="component-grid">
+              <span
+                v-for="component in trendComponentEntries(selectedArticle.trend_components)"
+                :key="component.key"
+              >
+                {{ component.label }} <strong>{{ component.value }}</strong>
+              </span>
+            </div>
+          </section>
+
+          <section v-if="selectedArticle.entities?.length" class="detail-entities" aria-label="相關實體">
+            <h3>相關工具 / 模型 / 公司</h3>
+            <div class="entity-list">
+              <span v-for="entity in selectedArticle.entities" :key="entity.id" class="entity-pill">
+                {{ entity.canonical_name }}
+                <small>{{ entityTypeLabel(entity.entity_type) }}</small>
+              </span>
+            </div>
+          </section>
 
           <div class="summary">
             <template

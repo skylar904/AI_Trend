@@ -18,6 +18,23 @@ CATEGORIES = [
     "其他AI趨勢",
 ]
 
+ENTITY_TYPES = [
+    "tool",
+    "company",
+    "model",
+    "framework",
+    "product",
+    "other",
+]
+
+TREND_SCORE_WEIGHTS = {
+    "relevance": 0.35,
+    "importance": 0.35,
+    "source": 10,
+    "entity": 4,
+    "recency": 5,
+}
+
 AI_KEYWORDS = [
     "ai",
     "artificial intelligence",

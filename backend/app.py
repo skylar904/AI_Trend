@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 from typing import Annotated
@@ -34,6 +35,57 @@ def connect_db():
 
 def row_to_dict(row):
     return {key: row[key] for key in row.keys()}
+
+
+def parse_json(value, fallback=None):
+    if fallback is None:
+        fallback = {}
+    try:
+        return json.loads(value) if value else fallback
+    except json.JSONDecodeError:
+        return fallback
+
+
+def table_exists(conn, table_name):
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def get_article_entities(conn, article_ids):
+    if not article_ids or not table_exists(conn, "entities"):
+        return {article_id: [] for article_id in article_ids}
+
+    placeholders = ",".join(["?"] * len(article_ids))
+    rows = conn.execute(
+        f"""
+        SELECT ae.article_id, e.id, e.canonical_name, e.entity_type,
+               ae.confidence, ae.evidence
+        FROM article_entities ae
+        JOIN entities e ON e.id = ae.entity_id
+        WHERE ae.article_id IN ({placeholders})
+        ORDER BY ae.confidence DESC, e.canonical_name
+        """,
+        article_ids,
+    ).fetchall()
+
+    grouped = {article_id: [] for article_id in article_ids}
+    for row in rows:
+        grouped[row["article_id"]].append(row_to_dict(row))
+    return grouped
+
+
+def attach_article_metadata(conn, articles):
+    article_ids = [article["id"] for article in articles]
+    entity_map = get_article_entities(conn, article_ids)
+
+    for article in articles:
+        article["entities"] = entity_map.get(article["id"], [])
+        article["trend_components"] = parse_json(article.get("trend_components"), {})
+
+    return articles
 
 
 @app.get("/api/health")
@@ -84,6 +136,8 @@ def get_articles(
 
     sql = """
         SELECT id, title, link, source, category, published, created_at,
+               relevance_score, importance_score, trend_score,
+               trend_reason, trend_components,
                substr(COALESCE(ai_summary, summary, ''), 1, 280) AS preview
         FROM articles
     """
@@ -93,8 +147,10 @@ def get_articles(
 
     with connect_db() as conn:
         rows = conn.execute(sql, values).fetchall()
+        articles = [row_to_dict(row) for row in rows]
+        articles = attach_article_metadata(conn, articles)
 
-    return [row_to_dict(row) for row in rows]
+    return articles
 
 
 @app.get("/api/articles/{article_id}")
@@ -103,17 +159,102 @@ def get_article(article_id: int):
         row = conn.execute(
             """
             SELECT id, title, link, source, category, published, created_at,
-                   summary, ai_summary
+                   summary, ai_summary, relevance_score, importance_score,
+                   trend_score, trend_reason, trend_components
             FROM articles
             WHERE id = ?
             """,
             (article_id,),
         ).fetchone()
 
-    if row is None:
-        raise HTTPException(status_code=404, detail="Article not found")
+        if row is None:
+            raise HTTPException(status_code=404, detail="Article not found")
 
-    return row_to_dict(row)
+        article = row_to_dict(row)
+        article = attach_article_metadata(conn, [article])[0]
+
+    return article
+
+
+@app.get("/api/entities")
+def get_entities():
+    with connect_db() as conn:
+        if not table_exists(conn, "entities"):
+            return []
+        rows = conn.execute(
+            """
+            SELECT id, canonical_name, entity_type, aliases, mention_count,
+                   trend_score, first_seen_at, last_seen_at
+            FROM entities
+            ORDER BY trend_score DESC, mention_count DESC, canonical_name
+            LIMIT 50
+            """
+        ).fetchall()
+
+    entities = []
+    for row in rows:
+        entity = row_to_dict(row)
+        entity["aliases"] = parse_json(entity.get("aliases"), [])
+        entities.append(entity)
+    return entities
+
+
+@app.get("/api/entities/{entity_id}")
+def get_entity(entity_id: int):
+    with connect_db() as conn:
+        if not table_exists(conn, "entities"):
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        entity_row = conn.execute(
+            """
+            SELECT id, canonical_name, entity_type, aliases, mention_count,
+                   trend_score, first_seen_at, last_seen_at
+            FROM entities
+            WHERE id = ?
+            """,
+            (entity_id,),
+        ).fetchone()
+        if entity_row is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        article_rows = conn.execute(
+            """
+            SELECT a.id, a.title, a.link, a.source, a.category, a.published,
+                   a.created_at, a.trend_score, ae.confidence, ae.evidence
+            FROM article_entities ae
+            JOIN articles a ON a.id = ae.article_id
+            WHERE ae.entity_id = ?
+            ORDER BY a.trend_score DESC, a.created_at DESC
+            LIMIT 20
+            """,
+            (entity_id,),
+        ).fetchall()
+
+    entity = row_to_dict(entity_row)
+    entity["aliases"] = parse_json(entity.get("aliases"), [])
+    entity["articles"] = [row_to_dict(row) for row in article_rows]
+    return entity
+
+
+@app.get("/api/trends/top")
+def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
+    with connect_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, title, link, source, category, published, created_at,
+                   relevance_score, importance_score, trend_score,
+                   trend_reason, trend_components,
+                   substr(COALESCE(ai_summary, summary, ''), 1, 220) AS preview
+            FROM articles
+            ORDER BY trend_score DESC, created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        articles = [row_to_dict(row) for row in rows]
+        articles = attach_article_metadata(conn, articles)
+
+    return articles
 
 
 @app.get("/", include_in_schema=False)
