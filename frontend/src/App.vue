@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { getArticle, getArticles, getEntities, getStats } from "./api";
+import { getArticle, getArticles, getEntities, getStats, getWeeklyTopics } from "./api";
 
 const stats = ref({
   total: 0,
@@ -10,6 +10,7 @@ const stats = ref({
 });
 const articles = ref([]);
 const entities = ref([]);
+const weeklyTopics = ref([]);
 const selectedArticle = ref(null);
 const loading = ref(true);
 const detailLoading = ref(false);
@@ -86,12 +87,21 @@ function entityTypeLabel(type) {
   return labels[type] || "其他";
 }
 
+function topicTypeLabel(type) {
+  if (type === "category") return "分類";
+  return entityTypeLabel(type);
+}
+
 async function loadStats() {
   stats.value = await getStats();
 }
 
 async function loadEntities() {
   entities.value = await getEntities();
+}
+
+async function loadWeeklyTopics() {
+  weeklyTopics.value = await getWeeklyTopics();
 }
 
 async function loadArticles() {
@@ -149,6 +159,7 @@ watch(
 onMounted(async () => {
   await loadStats();
   await loadEntities();
+  await loadWeeklyTopics();
   await loadArticles();
 });
 </script>
@@ -183,6 +194,41 @@ onMounted(async () => {
       <div class="metric metric-wide">
         <span>目前篩選</span>
         <strong>{{ activeSourceLabel }} / {{ activeCategoryLabel }}</strong>
+      </div>
+    </section>
+
+    <section class="weekly-topics" aria-label="本週討論度前五名">
+      <div class="panel-heading weekly-heading">
+        <div>
+          <p class="eyebrow">Weekly Signals</p>
+          <h2>本週討論度 Top 5</h2>
+        </div>
+        <span>近 7 天</span>
+      </div>
+
+      <p v-if="!weeklyTopics.length" class="notice">尚無本週討論度資料。</p>
+      <div v-else class="topic-chart">
+        <article v-for="(topic, index) in weeklyTopics" :key="`${topic.topic_type}-${topic.name}`" class="topic-bar">
+          <div class="topic-rank">{{ index + 1 }}</div>
+          <div class="topic-main">
+            <div class="topic-line">
+              <div>
+                <h3>{{ topic.name }}</h3>
+                <p>
+                  {{ topicTypeLabel(topic.topic_type) }} · {{ topic.article_count }} 篇文章 ·
+                  {{ topic.source_count }} 個來源
+                </p>
+              </div>
+              <strong>{{ Number(topic.discussion_score || 0).toFixed(1) }}</strong>
+            </div>
+            <div class="bar-track" aria-hidden="true">
+              <span :style="{ width: `${Math.max(topic.share || 0, 4)}%` }"></span>
+            </div>
+            <div class="topic-sources">
+              <span v-for="source in topic.sources.slice(0, 4)" :key="source">{{ source }}</span>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 

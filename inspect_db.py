@@ -65,6 +65,27 @@ def main():
             """,
         )
 
+        weekly_topics = fetch_all(
+            cursor,
+            """
+            SELECT COALESCE(ai_category, category, '未分類') AS name,
+                   COUNT(id) AS article_count,
+                   COUNT(DISTINCT source) AS source_count,
+                   ROUND(
+                       COALESCE(SUM(trend_score), 0)
+                       + COUNT(id) * 8
+                       + COUNT(DISTINCT source) * 12,
+                       2
+                   ) AS discussion_score,
+                   GROUP_CONCAT(DISTINCT source) AS sources
+            FROM articles
+            WHERE date(created_at) >= date('now', '-7 days')
+            GROUP BY COALESCE(ai_category, category, '未分類')
+            ORDER BY discussion_score DESC, article_count DESC, name
+            LIMIT 5
+            """,
+        )
+
     print(f"資料庫：{DB_NAME}")
     print(f"文章總數：{total}")
     print(f"最新收錄：{latest or '尚無資料'}")
@@ -103,6 +124,17 @@ def main():
                 f"{index}. [{row['trend_score']}] {safe_text(row['canonical_name'])} "
                 f"({safe_text(row['entity_type'])} / 提及 {row['mention_count']} / "
                 f"最新 {row['last_seen_at']})"
+            )
+    else:
+        print("- 尚無資料")
+
+    print("\n本週討論度 Top 5：")
+    if weekly_topics:
+        for index, row in enumerate(weekly_topics, start=1):
+            print(
+                f"{index}. [{row['discussion_score']}] {safe_text(row['name'])} "
+                f"(文章 {row['article_count']} / 來源 {row['source_count']} / "
+                f"{safe_text(row['sources'])})"
             )
     else:
         print("- 尚無資料")

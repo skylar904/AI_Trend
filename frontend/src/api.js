@@ -32,3 +32,7 @@ export function getEntities() {
 export function getTopTrends(limit = 10) {
   return request(`/api/trends/top?limit=${limit}`);
 }
+
+export function getWeeklyTopics(limit = 5) {
+  return request(`/api/dashboard/weekly-topics?limit=${limit}`);
+}

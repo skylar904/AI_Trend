@@ -257,6 +257,76 @@ def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
     return articles
 
 
+@app.get("/api/dashboard/weekly-topics")
+def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
+    with connect_db() as conn:
+        has_entities = table_exists(conn, "entities") and table_exists(conn, "article_entities")
+
+        if has_entities:
+            rows = conn.execute(
+                """
+                SELECT e.id, e.canonical_name AS name, e.entity_type AS topic_type,
+                       COUNT(DISTINCT a.id) AS article_count,
+                       COUNT(DISTINCT a.source) AS source_count,
+                       ROUND(
+                           COALESCE(SUM(a.trend_score), 0)
+                           + COUNT(DISTINCT a.id) * 8
+                           + COUNT(DISTINCT a.source) * 12,
+                           2
+                       ) AS discussion_score,
+                       GROUP_CONCAT(DISTINCT a.source) AS sources
+                FROM entities e
+                JOIN article_entities ae ON ae.entity_id = e.id
+                JOIN articles a ON a.id = ae.article_id
+                WHERE date(a.created_at) >= date('now', '-7 days')
+                GROUP BY e.id, e.canonical_name, e.entity_type
+                ORDER BY discussion_score DESC, article_count DESC, e.canonical_name
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            topics = [row_to_dict(row) for row in rows]
+            if topics:
+                max_score = max(float(topic["discussion_score"] or 0) for topic in topics) or 1
+                for topic in topics:
+                    topic["sources"] = [
+                        source for source in str(topic.get("sources") or "").split(",") if source
+                    ]
+                    topic["share"] = round(float(topic["discussion_score"] or 0) / max_score * 100, 2)
+                return topics
+
+        rows = conn.execute(
+            """
+            SELECT COALESCE(ai_category, category, '未分類') AS name,
+                   'category' AS topic_type,
+                   COUNT(id) AS article_count,
+                   COUNT(DISTINCT source) AS source_count,
+                   ROUND(
+                       COALESCE(SUM(trend_score), 0)
+                       + COUNT(id) * 8
+                       + COUNT(DISTINCT source) * 12,
+                       2
+                   ) AS discussion_score,
+                   GROUP_CONCAT(DISTINCT source) AS sources
+            FROM articles
+            WHERE date(created_at) >= date('now', '-7 days')
+            GROUP BY COALESCE(ai_category, category, '未分類')
+            ORDER BY discussion_score DESC, article_count DESC, name
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    topics = [row_to_dict(row) for row in rows]
+    max_score = max([float(topic["discussion_score"] or 0) for topic in topics] or [1])
+    for topic in topics:
+        topic["sources"] = [
+            source for source in str(topic.get("sources") or "").split(",") if source
+        ]
+        topic["share"] = round(float(topic["discussion_score"] or 0) / max_score * 100, 2)
+    return topics
+
+
 @app.get("/", include_in_schema=False)
 def serve_index():
     if INDEX_PATH.is_file():
