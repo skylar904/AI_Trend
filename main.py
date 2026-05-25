@@ -8,6 +8,7 @@ from cleaning import clean_article, dedupe_articles, is_probably_ai_related
 from rss_sources import RSS_FEEDS
 from report import generate_markdown_report, save_report
 from database import (
+    get_active_generated_queries,
     init_db,
     is_article_exists_by_identity,
     link_article_entity,
@@ -24,6 +25,38 @@ from trend_config import (
     MIN_RELEVANCE_SCORE,
     TREND_SCORE_WEIGHTS,
 )
+from weekly_emerging_topics import update_weekly_emerging_topics
+
+
+def load_query_terms():
+    terms = set()
+    for query in get_active_generated_queries():
+        text = str(query.get("query") or "").replace('"', " ").strip()
+        if text:
+            terms.add(text.lower())
+        term = str(query.get("term") or "").strip()
+        if term:
+            terms.add(term.lower())
+    return terms
+
+
+def apply_rss_query_boost(article, query_terms):
+    if not query_terms:
+        return article
+
+    text = " ".join(
+        [
+            article.get("title", ""),
+            article.get("summary", ""),
+            article.get("source", ""),
+            article.get("category", ""),
+        ]
+    ).lower()
+    hits = [term for term in query_terms if term and term in text]
+    if hits:
+        article["source_weight"] = float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT)) + 0.35
+        article["generated_query_hits"] = hits[:5]
+    return article
 
 
 def fetch_feed(feed):
@@ -86,6 +119,7 @@ def build_trend_reason(article, analysis, components):
 
 def collect_candidates():
     candidates = []
+    query_terms = load_query_terms()
     api_candidates, successful_api_sources = collect_api_candidates()
     candidates.extend(api_candidates)
     rss_replacements = rss_replacements_for(successful_api_sources)
@@ -97,11 +131,23 @@ def collect_candidates():
 
         print(f"正在巡邏來源：{feed['name']}")
         try:
-            candidates.extend(fetch_feed(feed))
+            rss_articles = [
+                apply_rss_query_boost(article, query_terms)
+                for article in fetch_feed(feed)
+            ]
+            candidates.extend(rss_articles)
         except Exception as error:
             print(f"來源讀取失敗，略過 {feed['name']}：{error}")
 
-    return dedupe_articles(candidates)
+    deduped = dedupe_articles(candidates)
+    deduped.sort(
+        key=lambda article: (
+            bool(article.get("generated_query_hits")),
+            float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT)),
+        ),
+        reverse=True,
+    )
+    return deduped
 
 
 def parse_args():
@@ -126,6 +172,11 @@ def parse_args():
         "--platform-only",
         action="store_true",
         help="Only update GitHub and Hugging Face platform rankings, then exit.",
+    )
+    parser.add_argument(
+        "--weekly-topics-only",
+        action="store_true",
+        help="Only update weekly emerging topics and generated search queries, then exit.",
     )
     return parser.parse_args()
 
@@ -153,6 +204,11 @@ def update_platform_rankings(dry_run=False):
 def main():
     args = parse_args()
     init_db()
+
+    if args.weekly_topics_only:
+        topics = update_weekly_emerging_topics(dry_run=args.dry_run)
+        print(f"本週新興議題 Top {len(topics)} 已更新。")
+        return
 
     if not args.skip_platform:
         update_platform_rankings(args.dry_run)
@@ -244,6 +300,9 @@ def main():
     else:
         file_path = save_report(markdown_text)
         print(f"報告已產生：{file_path}")
+
+    topics = update_weekly_emerging_topics(dry_run=args.dry_run)
+    print(f"本週新興議題 Top {len(topics)} 已更新。")
 
 
 if __name__ == "__main__":

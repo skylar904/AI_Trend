@@ -131,6 +131,14 @@ button {
   box-shadow: var(--shadow);
 }
 
+.emerging-topics {
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
 .weekly-heading {
   border-bottom: 1px solid var(--line);
 }
@@ -219,6 +227,59 @@ button {
   background: #fbfaf6;
   font-size: 11px;
   font-weight: 700;
+}
+
+.emerging-list {
+  display: grid;
+  gap: 0;
+  padding: 0;
+}
+
+.emerging-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.emerging-item:last-child {
+  border-bottom: 0;
+}
+
+.emerging-main {
+  min-width: 0;
+}
+
+.emerging-main h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.emerging-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.emerging-metrics span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: #fbfaf6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.emerging-item > strong {
+  color: var(--accent);
+  font-size: 21px;
+  line-height: 1;
 }
 
 .platform-rankings {

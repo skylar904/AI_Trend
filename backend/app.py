@@ -355,6 +355,33 @@ def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
     return topics
 
 
+@app.get("/api/dashboard/weekly-emerging-topics")
+def get_weekly_emerging_topics(limit: Annotated[int, Query(ge=1, le=5)] = 5):
+    with connect_db() as conn:
+        if not table_exists(conn, "weekly_emerging_topics"):
+            return []
+
+        latest_week = conn.execute(
+            "SELECT MAX(week_start) AS week_start FROM weekly_emerging_topics"
+        ).fetchone()
+        if not latest_week or not latest_week["week_start"]:
+            return []
+
+        rows = conn.execute(
+            """
+            SELECT id, week_start, week_end, term, mention_count, source_count,
+                   article_count, trend_score_sum, weekly_signal_score
+            FROM weekly_emerging_topics
+            WHERE week_start = ?
+            ORDER BY weekly_signal_score DESC, trend_score_sum DESC
+            LIMIT ?
+            """,
+            (latest_week["week_start"], limit),
+        ).fetchall()
+
+    return [row_to_dict(row) for row in rows]
+
+
 @app.get("/api/platform/github/top")
 def get_github_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
     return get_platform_items("github", limit)

@@ -8,6 +8,7 @@ from xml.etree import ElementTree
 
 from api_sources import API_RSS_REPLACEMENTS, API_SOURCES
 from cleaning import clean_article, dedupe_articles
+from database import get_active_generated_queries
 from trend_config import DEFAULT_SOURCE_WEIGHT
 
 
@@ -51,6 +52,10 @@ def has_required_env(source):
     return all(os.getenv(name) for name in source.get("requires_env", []))
 
 
+def generated_query_texts(platform):
+    return [item["query"] for item in get_active_generated_queries(platform)]
+
+
 def base_article(source, title, link, summary, published=""):
     return clean_article(
         {
@@ -73,11 +78,12 @@ def collect_github_search(source):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    per_query = max(1, source["max_entries"] // len(source["queries"]))
+    queries = source["queries"] + generated_query_texts("github")
+    per_query = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
     seen = set()
 
-    for query in source["queries"]:
+    for query in queries:
         data = request_json(
             "https://api.github.com/search/repositories",
             params={
@@ -119,11 +125,12 @@ def collect_huggingface_models(source):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    per_search = max(1, source["max_entries"] // len(source["searches"]))
+    searches = source["searches"] + generated_query_texts("huggingface")
+    per_search = max(1, source["max_entries"] // max(len(searches), 1))
     articles = []
     seen = set()
 
-    for search in source["searches"]:
+    for search in searches:
         data = request_json(
             "https://huggingface.co/api/models",
             params={
@@ -160,13 +167,22 @@ def collect_huggingface_models(source):
 
 
 def collect_arxiv(source):
+    queries = [source["query"]] + generated_query_texts("arxiv")
+    max_results = max(1, source["max_entries"] // max(len(queries), 1))
+    articles = []
+    for query in queries:
+        articles.extend(collect_arxiv_query(source, query, max_results))
+    return articles[: source["max_entries"]]
+
+
+def collect_arxiv_query(source, query, max_results):
     xml = request_text(
         "https://export.arxiv.org/api/query",
         params={
-            "search_query": source["query"],
+            "search_query": query,
             "sortBy": "lastUpdatedDate",
             "sortOrder": "descending",
-            "max_results": source["max_entries"],
+            "max_results": max_results,
         },
     )
     root = ElementTree.fromstring(xml)
@@ -191,35 +207,38 @@ def collect_semantic_scholar(source):
     if semantic_scholar_key:
         headers["x-api-key"] = semantic_scholar_key
 
-    data = request_json(
-        "https://api.semanticscholar.org/graph/v1/paper/search",
-        params={
-            "query": source["query"],
-            "limit": source["max_entries"],
-            "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors",
-        },
-        headers=headers,
-    )
+    queries = [source["query"]] + generated_query_texts("semantic_scholar")
+    per_query = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
-    for paper in data.get("data", []):
-        authors = ", ".join(author.get("name", "") for author in paper.get("authors", [])[:4])
-        summary = (
-            f"{paper.get('abstract') or ''}\n"
-            f"Venue: {paper.get('venue') or 'unknown'}. "
-            f"Year: {paper.get('year') or 'unknown'}. "
-            f"Citations: {paper.get('citationCount', 0)}. "
-            f"Authors: {authors}."
+    for query in queries:
+        data = request_json(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params={
+                "query": query,
+                "limit": per_query,
+                "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors",
+            },
+            headers=headers,
         )
-        articles.append(
-            base_article(
-                source,
-                paper.get("title", ""),
-                paper.get("url", ""),
-                summary,
-                paper.get("publicationDate", ""),
+        for paper in data.get("data", []):
+            authors = ", ".join(author.get("name", "") for author in paper.get("authors", [])[:4])
+            summary = (
+                f"{paper.get('abstract') or ''}\n"
+                f"Venue: {paper.get('venue') or 'unknown'}. "
+                f"Year: {paper.get('year') or 'unknown'}. "
+                f"Citations: {paper.get('citationCount', 0)}. "
+                f"Authors: {authors}."
             )
-        )
-    return articles
+            articles.append(
+                base_article(
+                    source,
+                    paper.get("title", ""),
+                    paper.get("url", ""),
+                    summary,
+                    paper.get("publicationDate", ""),
+                )
+            )
+    return articles[: source["max_entries"]]
 
 
 def openalex_abstract(inverted_index):
@@ -233,33 +252,36 @@ def openalex_abstract(inverted_index):
 
 
 def collect_openalex(source):
-    data = request_json(
-        "https://api.openalex.org/works",
-        params={
-            "search": source["query"],
-            "sort": "publication_date:desc",
-            "per-page": source["max_entries"],
-        },
-    )
+    queries = [source["query"]] + generated_query_texts("openalex")
+    per_query = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
-    for work in data.get("results", []):
-        title = work.get("display_name", "")
-        link = work.get("doi") or work.get("id", "")
-        summary = (
-            f"{openalex_abstract(work.get('abstract_inverted_index'))}\n"
-            f"Citations: {work.get('cited_by_count', 0)}. "
-            f"Publication year: {work.get('publication_year') or 'unknown'}."
+    for query in queries:
+        data = request_json(
+            "https://api.openalex.org/works",
+            params={
+                "search": query,
+                "sort": "publication_date:desc",
+                "per-page": per_query,
+            },
         )
-        articles.append(
-            base_article(
-                source,
-                title,
-                link,
-                summary,
-                work.get("publication_date", ""),
+        for work in data.get("results", []):
+            title = work.get("display_name", "")
+            link = work.get("doi") or work.get("id", "")
+            summary = (
+                f"{openalex_abstract(work.get('abstract_inverted_index'))}\n"
+                f"Citations: {work.get('cited_by_count', 0)}. "
+                f"Publication year: {work.get('publication_year') or 'unknown'}."
             )
-        )
-    return articles
+            articles.append(
+                base_article(
+                    source,
+                    title,
+                    link,
+                    summary,
+                    work.get("publication_date", ""),
+                )
+            )
+    return articles[: source["max_entries"]]
 
 
 def collect_hacker_news(source):
@@ -358,11 +380,21 @@ def reddit_access_token():
 def collect_reddit(source):
     token = reddit_access_token()
     subreddit_path = "+".join(source.get("subreddits", []))
-    data = request_json(
-        f"https://oauth.reddit.com/r/{subreddit_path}/hot",
-        params={"limit": source["max_entries"]},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    queries = generated_query_texts("reddit")
+    if queries:
+        search_query = " OR ".join(queries[:5])
+        endpoint = f"https://oauth.reddit.com/r/{subreddit_path}/search"
+        params = {
+            "q": search_query,
+            "restrict_sr": "true",
+            "sort": "new",
+            "limit": source["max_entries"],
+        }
+    else:
+        endpoint = f"https://oauth.reddit.com/r/{subreddit_path}/hot"
+        params = {"limit": source["max_entries"]}
+
+    data = request_json(endpoint, params=params, headers={"Authorization": f"Bearer {token}"})
     articles = []
     for child in data.get("data", {}).get("children", []):
         post = child.get("data", {})

@@ -37,6 +37,10 @@ export function getWeeklyTopics(limit = 5) {
   return request(`/api/dashboard/weekly-topics?limit=${limit}`);
 }
 
+export function getWeeklyEmergingTopics(limit = 5) {
+  return request(`/api/dashboard/weekly-emerging-topics?limit=${limit}`);
+}
+
 export function getGithubTop(limit = 10) {
   return request(`/api/platform/github/top?limit=${limit}`);
 }

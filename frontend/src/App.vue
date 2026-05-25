@@ -7,6 +7,7 @@ import {
   getGithubTop,
   getHuggingFaceTop,
   getStats,
+  getWeeklyEmergingTopics,
   getWeeklyTopics,
 } from "./api";
 
@@ -19,6 +20,7 @@ const stats = ref({
 const articles = ref([]);
 const entities = ref([]);
 const weeklyTopics = ref([]);
+const weeklyEmergingTopics = ref([]);
 const githubTop = ref([]);
 const huggingFaceTop = ref([]);
 const selectedArticle = ref(null);
@@ -123,6 +125,10 @@ async function loadWeeklyTopics() {
   weeklyTopics.value = await getWeeklyTopics();
 }
 
+async function loadWeeklyEmergingTopics() {
+  weeklyEmergingTopics.value = await getWeeklyEmergingTopics();
+}
+
 async function loadPlatformRankings() {
   const [github, huggingFace] = await Promise.all([
     getGithubTop(10),
@@ -188,6 +194,7 @@ onMounted(async () => {
   await loadStats();
   await loadEntities();
   await loadWeeklyTopics();
+  await loadWeeklyEmergingTopics();
   await loadPlatformRankings();
   await loadArticles();
 });
@@ -257,6 +264,33 @@ onMounted(async () => {
               <span v-for="source in topic.sources.slice(0, 4)" :key="source">{{ source }}</span>
             </div>
           </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="emerging-topics" aria-label="本週新興議題前五名">
+      <div class="panel-heading weekly-heading">
+        <div>
+          <p class="eyebrow">Emerging Signals</p>
+          <h2>本週新興議題 Top 5</h2>
+        </div>
+        <span>近 7 天</span>
+      </div>
+
+      <p v-if="!weeklyEmergingTopics.length" class="notice">尚無本週新興議題資料。</p>
+      <div v-else class="emerging-list">
+        <article v-for="(topic, index) in weeklyEmergingTopics" :key="topic.id" class="emerging-item">
+          <div class="topic-rank">{{ index + 1 }}</div>
+          <div class="emerging-main">
+            <h3>{{ topic.term }}</h3>
+            <div class="emerging-metrics">
+              <span>出現 {{ topic.mention_count }} 次</span>
+              <span>{{ topic.source_count }} 個來源</span>
+              <span>{{ topic.article_count }} 篇文章</span>
+              <span>趨勢分數 {{ Number(topic.trend_score_sum || 0).toFixed(1) }}</span>
+            </div>
+          </div>
+          <strong>{{ Number(topic.weekly_signal_score || 0).toFixed(1) }}</strong>
         </article>
       </div>
     </section>

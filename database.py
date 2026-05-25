@@ -32,6 +32,11 @@ PLATFORM_ITEM_COLUMNS = {
     "analyzed_at": "TEXT",
 }
 
+WEEKLY_EMERGING_TOPIC_COLUMNS = {
+    "analysis_summary": "TEXT",
+    "generated_queries": "TEXT",
+}
+
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -118,6 +123,49 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_emerging_topics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_start TEXT NOT NULL,
+            week_end TEXT NOT NULL,
+            term TEXT NOT NULL,
+            mention_count INTEGER DEFAULT 0,
+            source_count INTEGER DEFAULT 0,
+            article_count INTEGER DEFAULT 0,
+            trend_score_sum REAL DEFAULT 0,
+            weekly_signal_score REAL DEFAULT 0,
+            analysis_summary TEXT,
+            generated_queries TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            UNIQUE(week_start, term)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_emerging_topic_articles (
+            topic_id INTEGER NOT NULL,
+            article_id INTEGER NOT NULL,
+            evidence TEXT,
+            created_at TEXT,
+            PRIMARY KEY (topic_id, article_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generated_search_queries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            query TEXT NOT NULL,
+            reason TEXT,
+            active INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT,
+            UNIQUE(term, platform, query)
+        )
+    """)
+
     # Keep older local databases compatible as the project evolves.
     cursor.execute("PRAGMA table_info(articles)")
     columns = [column[1] for column in cursor.fetchall()]
@@ -134,6 +182,12 @@ def init_db():
     for column, column_type in PLATFORM_ITEM_COLUMNS.items():
         if column not in platform_columns:
             cursor.execute(f"ALTER TABLE platform_items ADD COLUMN {column} {column_type}")
+
+    cursor.execute("PRAGMA table_info(weekly_emerging_topics)")
+    weekly_topic_columns = [column[1] for column in cursor.fetchall()]
+    for column, column_type in WEEKLY_EMERGING_TOPIC_COLUMNS.items():
+        if column not in weekly_topic_columns:
+            cursor.execute(f"ALTER TABLE weekly_emerging_topics ADD COLUMN {column} {column_type}")
 
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_articles_fingerprint ON articles(fingerprint)"
@@ -152,6 +206,12 @@ def init_db():
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_platform_items_fetched_at ON platform_items(fetched_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_weekly_emerging_topics_score ON weekly_emerging_topics(week_start, weekly_signal_score)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_generated_search_queries_platform ON generated_search_queries(platform, active)"
     )
 
     conn.commit()
@@ -407,3 +467,134 @@ def save_platform_items(platform, items):
 
     conn.commit()
     conn.close()
+
+
+def save_weekly_emerging_topics(week_start, week_end, topics):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    old_topic_ids = [
+        row[0]
+        for row in cursor.execute(
+            "SELECT id FROM weekly_emerging_topics WHERE week_start = ?",
+            (week_start,),
+        ).fetchall()
+    ]
+    if old_topic_ids:
+        placeholders = ",".join(["?"] * len(old_topic_ids))
+        cursor.execute(
+            f"DELETE FROM weekly_emerging_topic_articles WHERE topic_id IN ({placeholders})",
+            old_topic_ids,
+        )
+    cursor.execute("DELETE FROM weekly_emerging_topics WHERE week_start = ?", (week_start,))
+
+    for topic in topics:
+        cursor.execute(
+            """
+            INSERT INTO weekly_emerging_topics (
+                week_start, week_end, term, mention_count, source_count,
+                article_count, trend_score_sum, weekly_signal_score,
+                analysis_summary, generated_queries, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                week_start,
+                week_end,
+                topic.get("term", ""),
+                int(topic.get("mention_count", 0)),
+                int(topic.get("source_count", 0)),
+                int(topic.get("article_count", 0)),
+                float(topic.get("trend_score_sum", 0)),
+                float(topic.get("weekly_signal_score", 0)),
+                topic.get("analysis_summary", ""),
+                json.dumps(topic.get("generated_queries", []), ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        topic_id = cursor.lastrowid
+        for article in topic.get("articles", []):
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO weekly_emerging_topic_articles (
+                    topic_id, article_id, evidence, created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    topic_id,
+                    int(article.get("id")),
+                    article.get("evidence", ""),
+                    now,
+                ),
+            )
+
+    conn.commit()
+    conn.close()
+
+
+def save_generated_search_queries(term, queries):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    for query in queries:
+        platform = str(query.get("platform", "")).strip()
+        query_text = str(query.get("query", "")).strip()
+        if not platform or not query_text:
+            continue
+        cursor.execute(
+            """
+            INSERT INTO generated_search_queries (
+                term, platform, query, reason, active, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, 1, ?, ?)
+            ON CONFLICT(term, platform, query) DO UPDATE SET
+                reason = excluded.reason,
+                active = 1,
+                updated_at = excluded.updated_at
+            """,
+            (
+                term,
+                platform,
+                query_text,
+                query.get("reason", ""),
+                now,
+                now,
+            ),
+        )
+
+    conn.commit()
+    conn.close()
+
+
+def get_active_generated_queries(platform=None):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if platform:
+        rows = cursor.execute(
+            """
+            SELECT term, platform, query, reason
+            FROM generated_search_queries
+            WHERE active = 1 AND platform = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (platform,),
+        ).fetchall()
+    else:
+        rows = cursor.execute(
+            """
+            SELECT term, platform, query, reason
+            FROM generated_search_queries
+            WHERE active = 1
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+
+    result = [dict(row) for row in rows]
+    conn.close()
+    return result
