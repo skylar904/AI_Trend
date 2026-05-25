@@ -3,8 +3,9 @@ import json
 import feedparser
 from datetime import datetime
 
+from api_collectors import collect_api_candidates, rss_replacements_for
 from cleaning import clean_article, dedupe_articles, is_probably_ai_related
-from feeds import RSS_FEEDS
+from rss_sources import RSS_FEEDS
 from report import generate_markdown_report, save_report
 from database import (
     init_db,
@@ -84,8 +85,15 @@ def build_trend_reason(article, analysis, components):
 
 def collect_candidates():
     candidates = []
+    api_candidates, successful_api_sources = collect_api_candidates()
+    candidates.extend(api_candidates)
+    rss_replacements = rss_replacements_for(successful_api_sources)
 
     for feed in RSS_FEEDS:
+        if feed["name"] in rss_replacements:
+            print(f"API 已處理，略過 RSS fallback：{feed['name']}")
+            continue
+
         print(f"正在巡邏來源：{feed['name']}")
         try:
             candidates.extend(fetch_feed(feed))

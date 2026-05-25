@@ -1,0 +1,136 @@
+from rss_sources import SOURCE_GROUPS
+from trend_config import MAX_ENTRIES_PER_SOURCE
+
+
+def api_source(
+    key,
+    name,
+    api_type,
+    category,
+    source_group,
+    weight,
+    max_entries=None,
+    requires_env=None,
+    **options,
+):
+    return {
+        "key": key,
+        "name": name,
+        "api_type": api_type,
+        "category": category,
+        "source_group": source_group,
+        "source_group_label": SOURCE_GROUPS[source_group],
+        "max_entries": max_entries or MAX_ENTRIES_PER_SOURCE,
+        "weight": weight,
+        "requires_env": requires_env or [],
+        **options,
+    }
+
+
+API_SOURCES = [
+    api_source(
+        "github_ai_repos",
+        "GitHub AI Repositories",
+        "github_search",
+        "開源專案",
+        "community",
+        1.2,
+        queries=[
+            "topic:ai stars:>50",
+            "topic:llm stars:>20",
+            "topic:machine-learning stars:>50",
+            "topic:rag stars:>10",
+            "topic:agents stars:>10",
+        ],
+        max_entries=12,
+    ),
+    api_source(
+        "huggingface_ai_models",
+        "Hugging Face AI Models",
+        "huggingface_models",
+        "模型發布",
+        "community",
+        1.15,
+        searches=[
+            "text-generation",
+            "sentence-transformers",
+            "image-to-text",
+            "text-to-image",
+            "agent",
+        ],
+        max_entries=12,
+    ),
+    api_source(
+        "arxiv_ai_papers",
+        "arXiv AI API",
+        "arxiv",
+        "研究論文",
+        "research",
+        1.05,
+        query="cat:cs.AI OR cat:cs.CL OR cat:cs.LG OR cat:stat.ML",
+        max_entries=12,
+    ),
+    api_source(
+        "semantic_scholar_ai",
+        "Semantic Scholar AI",
+        "semantic_scholar",
+        "研究論文",
+        "research",
+        1.05,
+        query="artificial intelligence machine learning large language model AI agent",
+        max_entries=10,
+    ),
+    api_source(
+        "openalex_ai",
+        "OpenAlex AI",
+        "openalex",
+        "研究論文",
+        "research",
+        1.0,
+        query="artificial intelligence large language model machine learning",
+        max_entries=10,
+    ),
+    api_source(
+        "hacker_news",
+        "Hacker News API",
+        "hacker_news",
+        "社群 / 趨勢",
+        "community",
+        0.85,
+        max_entries=30,
+    ),
+    api_source(
+        "product_hunt",
+        "Product Hunt API",
+        "product_hunt",
+        "社群 / 趨勢",
+        "community",
+        0.9,
+        requires_env=["PRODUCT_HUNT_TOKEN"],
+        max_entries=10,
+    ),
+    api_source(
+        "reddit_ai",
+        "Reddit AI API",
+        "reddit",
+        "社群 / 趨勢",
+        "community",
+        0.85,
+        requires_env=["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],
+        subreddits=["MachineLearning", "LocalLLaMA"],
+        max_entries=10,
+    ),
+]
+
+
+API_RSS_REPLACEMENTS = {
+    "arxiv_ai_papers": {
+        "arXiv cs.AI",
+        "arXiv cs.CL",
+        "arXiv cs.LG",
+        "arXiv stat.ML",
+    },
+    "hacker_news": {"Hacker News"},
+    "product_hunt": {"Product Hunt"},
+    "reddit_ai": {"Reddit MachineLearning", "Reddit LocalLLaMA"},
+}

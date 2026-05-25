@@ -140,30 +140,6 @@ RSS_FEEDS = [
 
 PLANNED_CUSTOM_SOURCES = [
     {
-        "name": "Meta AI Blog",
-        "url": "https://ai.meta.com/blog/",
-        "category": "官方公告",
-        "source_group": "official",
-        "source_group_label": SOURCE_GROUPS["official"],
-        "reason": "官方 blog 目前沒有穩定 RSS，之後可用自訂爬蟲或 RSSHub 接入。",
-    },
-    {
-        "name": "GitHub Trending AI / ML",
-        "url": "https://github.com/trending",
-        "category": "社群 / 趨勢",
-        "source_group": "community",
-        "source_group_label": SOURCE_GROUPS["community"],
-        "reason": "GitHub Trending 是 HTML 頁面，需自訂爬蟲解析 repository card。",
-    },
-    {
-        "name": "Hugging Face Trending Models",
-        "url": "https://huggingface.co/models?sort=trending",
-        "category": "社群 / 趨勢",
-        "source_group": "community",
-        "source_group_label": SOURCE_GROUPS["community"],
-        "reason": "Trending models 是互動式頁面，需自訂爬蟲或 HF API。",
-    },
-    {
         "name": "CrewAI Blog",
         "url": "https://crewai.com/blog",
         "category": "AI Agent / Agentic Workflow",
