@@ -11,8 +11,10 @@ from database import (
     is_article_exists_by_identity,
     link_article_entity,
     save_article,
+    save_platform_items,
     upsert_entity,
 )
+from platform_collectors import collect_platform_top
 from summarizer import analyze_article
 from trend_config import (
     DEFAULT_SOURCE_WEIGHT,
@@ -36,6 +38,8 @@ def fetch_feed(feed):
             "published": entry.get("published", ""),
             "summary": entry.get("summary", entry.get("description", "")),
             "source_weight": feed.get("weight", DEFAULT_SOURCE_WEIGHT),
+            "source_group": feed.get("source_group", ""),
+            "source_group_label": feed.get("source_group_label", ""),
         }
         articles.append(clean_article(article))
 
@@ -104,12 +108,35 @@ def parse_args():
         action="store_true",
         help="Analyze candidates without writing to articles.db or reports/.",
     )
+    parser.add_argument(
+        "--skip-platform",
+        action="store_true",
+        help="Skip GitHub and Hugging Face platform top 10 collection.",
+    )
     return parser.parse_args()
+
+
+def update_platform_rankings(dry_run=False):
+    print("\n更新平台熱門排行榜：GitHub / Hugging Face")
+    try:
+        rankings = collect_platform_top(limit=10)
+    except Exception as error:
+        print(f"平台排行榜讀取失敗，略過：{error}")
+        return
+
+    for platform, items in rankings.items():
+        print(f"{platform} Top {len(items)}")
+        if dry_run:
+            continue
+        save_platform_items(platform, items)
 
 
 def main():
     args = parse_args()
     init_db()
+
+    if not args.skip_platform:
+        update_platform_rankings(args.dry_run)
 
     candidates = collect_candidates()
     print(f"\n候選文章數量：{len(candidates)}")

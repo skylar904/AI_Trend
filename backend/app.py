@@ -88,6 +88,32 @@ def attach_article_metadata(conn, articles):
     return articles
 
 
+def get_platform_items(platform, limit):
+    with connect_db() as conn:
+        if not table_exists(conn, "platform_items"):
+            return []
+
+        rows = conn.execute(
+            """
+            SELECT id, platform, item_id, name, url, description, rank, score,
+                   primary_metric_name, primary_metric_value,
+                   secondary_metric_name, secondary_metric_value,
+                   category, tags, metrics, fetched_at
+            FROM platform_items
+            WHERE platform = ?
+            ORDER BY rank ASC, score DESC
+            LIMIT ?
+            """,
+            (platform, limit),
+        ).fetchall()
+
+    items = [row_to_dict(row) for row in rows]
+    for item in items:
+        item["tags"] = parse_json(item.get("tags"), [])
+        item["metrics"] = parse_json(item.get("metrics"), {})
+    return items
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -325,6 +351,16 @@ def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
         ]
         topic["share"] = round(float(topic["discussion_score"] or 0) / max_score * 100, 2)
     return topics
+
+
+@app.get("/api/platform/github/top")
+def get_github_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
+    return get_platform_items("github", limit)
+
+
+@app.get("/api/platform/huggingface/top")
+def get_huggingface_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
+    return get_platform_items("huggingface", limit)
 
 
 @app.get("/", include_in_schema=False)

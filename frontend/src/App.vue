@@ -1,6 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { getArticle, getArticles, getEntities, getStats, getWeeklyTopics } from "./api";
+import {
+  getArticle,
+  getArticles,
+  getEntities,
+  getGithubTop,
+  getHuggingFaceTop,
+  getStats,
+  getWeeklyTopics,
+} from "./api";
 
 const stats = ref({
   total: 0,
@@ -11,6 +19,8 @@ const stats = ref({
 const articles = ref([]);
 const entities = ref([]);
 const weeklyTopics = ref([]);
+const githubTop = ref([]);
+const huggingFaceTop = ref([]);
 const selectedArticle = ref(null);
 const loading = ref(true);
 const detailLoading = ref(false);
@@ -92,6 +102,11 @@ function topicTypeLabel(type) {
   return entityTypeLabel(type);
 }
 
+function formatPlatformMetric(value) {
+  const number = Number(value || 0);
+  return new Intl.NumberFormat("en-US", { notation: "compact" }).format(number);
+}
+
 async function loadStats() {
   stats.value = await getStats();
 }
@@ -102,6 +117,15 @@ async function loadEntities() {
 
 async function loadWeeklyTopics() {
   weeklyTopics.value = await getWeeklyTopics();
+}
+
+async function loadPlatformRankings() {
+  const [github, huggingFace] = await Promise.all([
+    getGithubTop(10),
+    getHuggingFaceTop(10),
+  ]);
+  githubTop.value = github;
+  huggingFaceTop.value = huggingFace;
 }
 
 async function loadArticles() {
@@ -160,6 +184,7 @@ onMounted(async () => {
   await loadStats();
   await loadEntities();
   await loadWeeklyTopics();
+  await loadPlatformRankings();
   await loadArticles();
 });
 </script>
@@ -229,6 +254,57 @@ onMounted(async () => {
             </div>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="platform-rankings" aria-label="平台熱門排行榜">
+      <div class="platform-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">GitHub</p>
+            <h2>全站熱門 Repo Top 10</h2>
+          </div>
+          <span>stars</span>
+        </div>
+        <p v-if="!githubTop.length" class="notice">尚無 GitHub 排行資料。</p>
+        <ol v-else class="ranking-list">
+          <li v-for="item in githubTop" :key="item.item_id">
+            <span class="ranking-index">{{ item.rank }}</span>
+            <div class="ranking-main">
+              <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
+              <p>{{ item.description || "No description" }}</p>
+              <div class="ranking-tags">
+                <span v-if="item.category">{{ item.category }}</span>
+                <span v-for="tag in item.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+            <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+          </li>
+        </ol>
+      </div>
+
+      <div class="platform-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Hugging Face</p>
+            <h2>全站熱門 Model Top 10</h2>
+          </div>
+          <span>downloads</span>
+        </div>
+        <p v-if="!huggingFaceTop.length" class="notice">尚無 Hugging Face 排行資料。</p>
+        <ol v-else class="ranking-list">
+          <li v-for="item in huggingFaceTop" :key="item.item_id">
+            <span class="ranking-index">{{ item.rank }}</span>
+            <div class="ranking-main">
+              <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
+              <p>{{ item.category || "model" }}</p>
+              <div class="ranking-tags">
+                <span v-for="tag in item.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+            <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+          </li>
+        </ol>
       </div>
     </section>
 

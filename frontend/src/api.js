@@ -36,3 +36,11 @@ export function getTopTrends(limit = 10) {
 export function getWeeklyTopics(limit = 5) {
   return request(`/api/dashboard/weekly-topics?limit=${limit}`);
 }
+
+export function getGithubTop(limit = 10) {
+  return request(`/api/platform/github/top?limit=${limit}`);
+}
+
+export function getHuggingFaceTop(limit = 10) {
+  return request(`/api/platform/huggingface/top?limit=${limit}`);
+}

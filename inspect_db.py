@@ -44,6 +44,17 @@ def main():
             """,
         )
 
+        source_groups = fetch_all(
+            cursor,
+            """
+            SELECT COALESCE(source_group_label, '未分類來源') AS source_group_label,
+                   COUNT(*) AS count
+            FROM articles
+            GROUP BY COALESCE(source_group_label, '未分類來源')
+            ORDER BY count DESC, source_group_label
+            """,
+        )
+
         top_trends = fetch_all(
             cursor,
             """
@@ -101,6 +112,13 @@ def main():
     if sources:
         for row in sources:
             print(f"- {row['source']}: {row['count']}")
+    else:
+        print("- 尚無資料")
+
+    print("\n來源類型分布：")
+    if source_groups:
+        for row in source_groups:
+            print(f"- {row['source_group_label']}: {row['count']}")
     else:
         print("- 尚無資料")
 

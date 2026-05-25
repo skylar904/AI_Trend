@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+import json
 
 from entities import parse_aliases, serialize_aliases
 
@@ -17,6 +18,8 @@ ARTICLE_COLUMNS = {
     "collected_at": "TEXT",
     "trend_reason": "TEXT",
     "trend_components": "TEXT",
+    "source_group": "TEXT",
+    "source_group_label": "TEXT",
 }
 
 
@@ -43,6 +46,8 @@ def init_db():
             collected_at TEXT,
             trend_reason TEXT,
             trend_components TEXT,
+            source_group TEXT,
+            source_group_label TEXT,
             created_at TEXT
         )
     """)
@@ -72,6 +77,30 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS platform_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT,
+            description TEXT,
+            rank INTEGER,
+            score REAL DEFAULT 0,
+            primary_metric_name TEXT,
+            primary_metric_value REAL DEFAULT 0,
+            secondary_metric_name TEXT,
+            secondary_metric_value REAL DEFAULT 0,
+            category TEXT,
+            tags TEXT,
+            metrics TEXT,
+            fetched_at TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            UNIQUE(platform, item_id)
+        )
+    """)
+
     # Keep older local databases compatible as the project evolves.
     cursor.execute("PRAGMA table_info(articles)")
     columns = [column[1] for column in cursor.fetchall()]
@@ -94,6 +123,12 @@ def init_db():
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_article_entities_entity ON article_entities(entity_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_platform_items_platform_rank ON platform_items(platform, rank)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_platform_items_fetched_at ON platform_items(fetched_at)"
     )
 
     conn.commit()
@@ -142,9 +177,10 @@ def save_article(article):
             INSERT INTO articles (
                 title, link, source, category, published, summary, ai_summary,
                 fingerprint, relevance_score, importance_score, trend_score,
-                ai_category, reason, collected_at, trend_reason, trend_components, created_at
+                ai_category, reason, collected_at, trend_reason, trend_components,
+                source_group, source_group_label, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             article["title"],
             article["link"],
@@ -162,6 +198,8 @@ def save_article(article):
             article.get("collected_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             article.get("trend_reason", ""),
             article.get("trend_components", ""),
+            article.get("source_group", ""),
+            article.get("source_group_label", ""),
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
 
@@ -291,6 +329,49 @@ def update_article_trend_metadata(article_id, article):
             article_id,
         ),
     )
+
+    conn.commit()
+    conn.close()
+
+
+def save_platform_items(platform, items):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM platform_items WHERE platform = ?", (platform,))
+
+    for item in items:
+        cursor.execute(
+            """
+            INSERT INTO platform_items (
+                platform, item_id, name, url, description, rank, score,
+                primary_metric_name, primary_metric_value,
+                secondary_metric_name, secondary_metric_value,
+                category, tags, metrics, fetched_at, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                platform,
+                item.get("item_id", ""),
+                item.get("name", ""),
+                item.get("url", ""),
+                item.get("description", ""),
+                item.get("rank", 0),
+                item.get("score", 0),
+                item.get("primary_metric_name", ""),
+                item.get("primary_metric_value", 0),
+                item.get("secondary_metric_name", ""),
+                item.get("secondary_metric_value", 0),
+                item.get("category", ""),
+                json.dumps(item.get("tags", []), ensure_ascii=False),
+                json.dumps(item.get("metrics", {}), ensure_ascii=False),
+                item.get("fetched_at", now),
+                now,
+                now,
+            ),
+        )
 
     conn.commit()
     conn.close()
