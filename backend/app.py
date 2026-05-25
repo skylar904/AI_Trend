@@ -98,7 +98,8 @@ def get_platform_items(platform, limit):
             SELECT id, platform, item_id, name, url, description, rank, score,
                    primary_metric_name, primary_metric_value,
                    secondary_metric_name, secondary_metric_value,
-                   category, tags, metrics, fetched_at
+                   category, tags, metrics, ai_summary, usage_guide, target_users,
+                   popularity_reason, quickstart, ai_analysis, analyzed_at, fetched_at
             FROM platform_items
             WHERE platform = ?
             ORDER BY rank ASC, score DESC
@@ -111,6 +112,7 @@ def get_platform_items(platform, limit):
     for item in items:
         item["tags"] = parse_json(item.get("tags"), [])
         item["metrics"] = parse_json(item.get("metrics"), {})
+        item["ai_analysis"] = parse_json(item.get("ai_analysis"), {})
     return items
 
 

@@ -298,6 +298,50 @@ button {
   -webkit-line-clamp: 2;
 }
 
+.ranking-analysis {
+  display: grid;
+  gap: 9px;
+  margin-top: 11px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
+.ranking-analysis > p {
+  display: block;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.65;
+  -webkit-line-clamp: unset;
+}
+
+.analysis-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.analysis-row span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.analysis-row p,
+.analysis-row ul {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.analysis-row ul {
+  padding-left: 17px;
+}
+
 .ranking-tags {
   display: flex;
   flex-wrap: wrap;

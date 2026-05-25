@@ -22,6 +22,16 @@ ARTICLE_COLUMNS = {
     "source_group_label": "TEXT",
 }
 
+PLATFORM_ITEM_COLUMNS = {
+    "ai_summary": "TEXT",
+    "usage_guide": "TEXT",
+    "target_users": "TEXT",
+    "popularity_reason": "TEXT",
+    "quickstart": "TEXT",
+    "ai_analysis": "TEXT",
+    "analyzed_at": "TEXT",
+}
+
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -94,6 +104,13 @@ def init_db():
             category TEXT,
             tags TEXT,
             metrics TEXT,
+            ai_summary TEXT,
+            usage_guide TEXT,
+            target_users TEXT,
+            popularity_reason TEXT,
+            quickstart TEXT,
+            ai_analysis TEXT,
+            analyzed_at TEXT,
             fetched_at TEXT,
             created_at TEXT,
             updated_at TEXT,
@@ -111,6 +128,12 @@ def init_db():
     for column, column_type in ARTICLE_COLUMNS.items():
         if column not in columns:
             cursor.execute(f"ALTER TABLE articles ADD COLUMN {column} {column_type}")
+
+    cursor.execute("PRAGMA table_info(platform_items)")
+    platform_columns = [column[1] for column in cursor.fetchall()]
+    for column, column_type in PLATFORM_ITEM_COLUMNS.items():
+        if column not in platform_columns:
+            cursor.execute(f"ALTER TABLE platform_items ADD COLUMN {column} {column_type}")
 
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_articles_fingerprint ON articles(fingerprint)"
@@ -348,9 +371,11 @@ def save_platform_items(platform, items):
                 platform, item_id, name, url, description, rank, score,
                 primary_metric_name, primary_metric_value,
                 secondary_metric_name, secondary_metric_value,
-                category, tags, metrics, fetched_at, created_at, updated_at
+                category, tags, metrics, ai_summary, usage_guide, target_users,
+                popularity_reason, quickstart, ai_analysis, analyzed_at,
+                fetched_at, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 platform,
@@ -367,6 +392,13 @@ def save_platform_items(platform, items):
                 item.get("category", ""),
                 json.dumps(item.get("tags", []), ensure_ascii=False),
                 json.dumps(item.get("metrics", {}), ensure_ascii=False),
+                item.get("ai_summary", ""),
+                item.get("usage_guide", ""),
+                item.get("target_users", ""),
+                item.get("popularity_reason", ""),
+                item.get("quickstart", ""),
+                json.dumps(item.get("ai_analysis", {}), ensure_ascii=False),
+                item.get("analyzed_at", ""),
                 item.get("fetched_at", now),
                 now,
                 now,

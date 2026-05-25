@@ -107,6 +107,10 @@ function formatPlatformMetric(value) {
   return new Intl.NumberFormat("en-US", { notation: "compact" }).format(number);
 }
 
+function analysisList(value) {
+  return Array.isArray(value) ? value.filter(Boolean).slice(0, 3) : [];
+}
+
 async function loadStats() {
   stats.value = await getStats();
 }
@@ -277,6 +281,23 @@ onMounted(async () => {
                 <span v-if="item.category">{{ item.category }}</span>
                 <span v-for="tag in item.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
               </div>
+              <div v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+                <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
+                <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
+                  <span>用途</span>
+                  <ul>
+                    <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                  </ul>
+                </div>
+                <div v-if="item.quickstart" class="analysis-row">
+                  <span>開始</span>
+                  <p>{{ item.quickstart }}</p>
+                </div>
+                <div v-if="item.popularity_reason" class="analysis-row">
+                  <span>熱門原因</span>
+                  <p>{{ item.popularity_reason }}</p>
+                </div>
+              </div>
             </div>
             <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
           </li>
@@ -300,6 +321,23 @@ onMounted(async () => {
               <p>{{ item.category || "model" }}</p>
               <div class="ranking-tags">
                 <span v-for="tag in item.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+              </div>
+              <div v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+                <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
+                <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
+                  <span>用途</span>
+                  <ul>
+                    <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                  </ul>
+                </div>
+                <div v-if="item.quickstart" class="analysis-row">
+                  <span>開始</span>
+                  <p>{{ item.quickstart }}</p>
+                </div>
+                <div v-if="item.popularity_reason" class="analysis-row">
+                  <span>熱門原因</span>
+                  <p>{{ item.popularity_reason }}</p>
+                </div>
               </div>
             </div>
             <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>

@@ -1,7 +1,8 @@
 import os
 import json
 from datetime import datetime
-from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -26,6 +27,44 @@ def request_json(url, params=None, token=None, token_type="Bearer"):
         return json.loads(response.read().decode("utf-8"))
 
 
+def request_text(url, token=None, accept="text/plain"):
+    headers = {
+        "Accept": accept,
+        "User-Agent": "AI-Trend-Dashboard",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    request = Request(url, headers=headers)
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except (HTTPError, URLError, TimeoutError):
+        return ""
+
+
+def truncate_text(text, limit=7000):
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "\n\n[content truncated]"
+
+
+def fetch_github_readme(full_name, token=None):
+    if not full_name or "/" not in full_name:
+        return ""
+    owner, repo = full_name.split("/", 1)
+    url = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/readme"
+    return truncate_text(request_text(url, token=token, accept="application/vnd.github.raw+json"))
+
+
+def fetch_huggingface_model_card(model_id, token=None):
+    if not model_id:
+        return ""
+    url = f"https://huggingface.co/{quote(model_id, safe='/')}/raw/main/README.md"
+    return truncate_text(request_text(url, token=token))
+
+
 def collect_github_top(limit=10):
     token = os.getenv("GITHUB_TOKEN", "")
     data = request_json(
@@ -45,11 +84,12 @@ def collect_github_top(limit=10):
     for index, repo in enumerate(data.get("items", [])[:limit], start=1):
         stars = int(repo.get("stargazers_count") or 0)
         forks = int(repo.get("forks_count") or 0)
+        full_name = repo.get("full_name") or repo.get("name", "")
         items.append(
             {
                 "platform": "github",
-                "item_id": str(repo.get("full_name") or repo.get("id")),
-                "name": repo.get("full_name") or repo.get("name", ""),
+                "item_id": str(full_name or repo.get("id")),
+                "name": full_name,
                 "url": repo.get("html_url", ""),
                 "description": repo.get("description") or "",
                 "rank": index,
@@ -68,6 +108,7 @@ def collect_github_top(limit=10):
                     "language": repo.get("language") or "",
                     "updated_at": repo.get("updated_at") or "",
                 },
+                "analysis_source": fetch_github_readme(full_name, token),
                 "fetched_at": fetched_at,
             }
         )
@@ -117,6 +158,7 @@ def collect_huggingface_top(limit=10):
                     "last_modified": model.get("lastModified") or "",
                     "library_name": model.get("library_name") or "",
                 },
+                "analysis_source": fetch_huggingface_model_card(model_id, token),
                 "fetched_at": fetched_at,
             }
         )

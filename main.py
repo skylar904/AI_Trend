@@ -15,7 +15,8 @@ from database import (
     save_platform_items,
     upsert_entity,
 )
-from platform_collectors import collect_platform_top
+from Github_Huggingface_analyzer import analyze_platform_item
+from Github_Huggingface_collector import collect_platform_top
 from summarizer import analyze_article
 from trend_config import (
     DEFAULT_SOURCE_WEIGHT,
@@ -121,6 +122,11 @@ def parse_args():
         action="store_true",
         help="Skip GitHub and Hugging Face platform top 10 collection.",
     )
+    parser.add_argument(
+        "--platform-only",
+        action="store_true",
+        help="Only update GitHub and Hugging Face platform rankings, then exit.",
+    )
     return parser.parse_args()
 
 
@@ -136,7 +142,12 @@ def update_platform_rankings(dry_run=False):
         print(f"{platform} Top {len(items)}")
         if dry_run:
             continue
-        save_platform_items(platform, items)
+        analyzed_items = []
+        for item in items:
+            print(f"分析排行項目：{item['name']}")
+            item.update(analyze_platform_item(item))
+            analyzed_items.append(item)
+        save_platform_items(platform, analyzed_items)
 
 
 def main():
@@ -145,6 +156,8 @@ def main():
 
     if not args.skip_platform:
         update_platform_rankings(args.dry_run)
+        if args.platform_only:
+            return
 
     candidates = collect_candidates()
     print(f"\n候選文章數量：{len(candidates)}")
