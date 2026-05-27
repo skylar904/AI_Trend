@@ -6,6 +6,7 @@ import {
   getEntities,
   getGithubTop,
   getHuggingFaceTop,
+  getProjectAdvice,
   getStats,
   getWeeklyEmergingTopics,
   getWeeklyTopics,
@@ -23,10 +24,14 @@ const weeklyTopics = ref([]);
 const weeklyEmergingTopics = ref([]);
 const githubTop = ref([]);
 const huggingFaceTop = ref([]);
+const projectQuery = ref("");
+const projectAdvice = ref(null);
 const selectedArticle = ref(null);
 const loading = ref(true);
 const detailLoading = ref(false);
+const projectLoading = ref(false);
 const error = ref("");
+const projectError = ref("");
 
 const filters = reactive({
   source: "",
@@ -113,6 +118,16 @@ function analysisList(value) {
   return Array.isArray(value) ? value.filter(Boolean).slice(0, 3) : [];
 }
 
+function sourceTypeLabel(type) {
+  const labels = {
+    github: "GitHub",
+    huggingface: "Hugging Face",
+    research: "研究",
+    web: "Web",
+  };
+  return labels[type] || type || "來源";
+}
+
 async function loadStats() {
   stats.value = await getStats();
 }
@@ -157,6 +172,21 @@ async function loadArticles() {
     error.value = "讀取文章失敗，請確認 Python API server 是否正在執行。";
   } finally {
     loading.value = false;
+  }
+}
+
+async function analyzeProject() {
+  const query = projectQuery.value.trim();
+  if (!query) return;
+
+  projectLoading.value = true;
+  projectError.value = "";
+  try {
+    projectAdvice.value = await getProjectAdvice(query);
+  } catch (err) {
+    projectError.value = "專案分析失敗，請稍後再試或縮短查詢內容。";
+  } finally {
+    projectLoading.value = false;
   }
 }
 
@@ -230,6 +260,89 @@ onMounted(async () => {
       <div class="metric metric-wide">
         <span>目前篩選</span>
         <strong>{{ activeSourceLabel }} / {{ activeCategoryLabel }}</strong>
+      </div>
+    </section>
+
+    <section class="project-advisor" aria-label="專案顧問">
+      <div class="panel-heading advisor-heading">
+        <div>
+          <p class="eyebrow">Project Advisor</p>
+          <h2>專案顧問</h2>
+        </div>
+        <span>GitHub / Hugging Face / Research / Web</span>
+      </div>
+      <form class="advisor-form" @submit.prevent="analyzeProject">
+        <input
+          v-model="projectQuery"
+          type="search"
+          placeholder="輸入專案想法或未知技術名詞，例如：狗鼻紋辨識"
+        />
+        <button type="submit" :disabled="projectLoading || !projectQuery.trim()">
+          {{ projectLoading ? "分析中..." : "分析" }}
+        </button>
+      </form>
+
+      <p v-if="projectError" class="notice">{{ projectError }}</p>
+      <div v-if="projectAdvice" class="advisor-result">
+        <section>
+          <h3>專案本質</h3>
+          <p>{{ projectAdvice.project_nature }}</p>
+        </section>
+
+        <section>
+          <h3>GitHub 參考專案</h3>
+          <p v-if="!projectAdvice.github_projects?.length" class="muted-note">沒有找到明確相關專案。</p>
+          <div v-else class="advisor-cards">
+            <article v-for="project in projectAdvice.github_projects" :key="project.url">
+              <a :href="project.url" target="_blank" rel="noreferrer">{{ project.name }}</a>
+              <p>{{ project.why_relevant }}</p>
+              <span>{{ project.language || "unknown" }} · {{ formatPlatformMetric(project.stars) }} stars</span>
+            </article>
+          </div>
+        </section>
+
+        <section>
+          <h3>Hugging Face 可用模型</h3>
+          <p v-if="!projectAdvice.huggingface_models?.length" class="muted-note">沒有找到明確相關模型。</p>
+          <div v-else class="advisor-cards">
+            <article v-for="model in projectAdvice.huggingface_models" :key="model.url">
+              <a :href="model.url" target="_blank" rel="noreferrer">{{ model.name }}</a>
+              <p>{{ model.why_relevant }}</p>
+              <span>{{ model.task || "model" }} · {{ formatPlatformMetric(model.downloads) }} downloads</span>
+            </article>
+          </div>
+        </section>
+
+        <section>
+          <h3>相關研究方向</h3>
+          <div class="research-list">
+            <a
+              v-for="direction in projectAdvice.research_directions"
+              :key="direction.url || direction.title"
+              :href="direction.url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <strong>{{ direction.title }}</strong>
+              <span>{{ direction.why_relevant }}</span>
+            </a>
+          </div>
+        </section>
+
+        <section>
+          <h3>資料來源</h3>
+          <div class="source-list">
+            <a
+              v-for="source in projectAdvice.sources"
+              :key="source.url || source.title"
+              :href="source.url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {{ sourceTypeLabel(source.source_type) }} · {{ source.title }}
+            </a>
+          </div>
+        </section>
       </div>
     </section>
 

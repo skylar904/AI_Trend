@@ -48,3 +48,8 @@ export function getGithubTop(limit = 10) {
 export function getHuggingFaceTop(limit = 10) {
   return request(`/api/platform/huggingface/top?limit=${limit}`);
 }
+
+export function getProjectAdvice(query) {
+  const params = new URLSearchParams({ q: query });
+  return request(`/api/project-advisor?${params.toString()}`);
+}

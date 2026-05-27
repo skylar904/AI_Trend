@@ -7,6 +7,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from project_advisor import advise_project
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "articles.db"
@@ -390,6 +392,14 @@ def get_github_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
 @app.get("/api/platform/huggingface/top")
 def get_huggingface_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
     return get_platform_items("huggingface", limit)
+
+
+@app.get("/api/project-advisor")
+def get_project_advice(q: Annotated[str, Query(min_length=2, max_length=300)]):
+    try:
+        return advise_project(q)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 @app.get("/", include_in_schema=False)

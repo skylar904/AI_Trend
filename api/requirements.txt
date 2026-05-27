@@ -1,1 +1,3 @@
 fastapi==0.125.0
+openai==2.33.0
+python-dotenv==1.2.2

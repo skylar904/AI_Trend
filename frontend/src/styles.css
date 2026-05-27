@@ -123,6 +123,149 @@ button {
   line-height: 1.35;
 }
 
+.project-advisor {
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
+.advisor-heading {
+  border-bottom: 1px solid var(--line);
+}
+
+.advisor-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.advisor-form input {
+  min-height: 44px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: #fbfaf6;
+}
+
+.advisor-form input:focus {
+  border-color: var(--accent);
+  outline: 3px solid rgba(13, 123, 102, 0.16);
+}
+
+.advisor-form button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  background: var(--accent);
+  font-weight: 900;
+}
+
+.advisor-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.advisor-result {
+  display: grid;
+  gap: 18px;
+  padding: 0 18px 18px;
+}
+
+.advisor-result section {
+  min-width: 0;
+}
+
+.advisor-result h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.advisor-result p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.advisor-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advisor-cards article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
+.advisor-cards a,
+.research-list a,
+.source-list a {
+  color: var(--ink);
+  font-weight: 900;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.advisor-cards a:hover,
+.research-list a:hover,
+.source-list a:hover {
+  color: var(--accent);
+}
+
+.advisor-cards p {
+  margin-top: 7px;
+  font-size: 13px;
+}
+
+.advisor-cards span {
+  display: inline-flex;
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.research-list,
+.source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.research-list a {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
+.research-list span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.source-list a {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfaf6;
+  font-size: 13px;
+}
+
 .weekly-topics {
   margin-bottom: 16px;
   border: 1px solid var(--line);
@@ -816,5 +959,10 @@ button {
 
   .component-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .advisor-form,
+  .advisor-cards {
+    grid-template-columns: 1fr;
   }
 }
