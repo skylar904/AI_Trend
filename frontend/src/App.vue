@@ -522,28 +522,6 @@ onMounted(async () => {
         </div>
 
         <div class="filter-section">
-          <p>來源</p>
-          <button
-            class="chip"
-            :class="{ active: !filters.source }"
-            type="button"
-            @click="filters.source = ''"
-          >
-            全部
-          </button>
-          <button
-            v-for="source in stats.sources"
-            :key="source.source"
-            class="chip"
-            :class="{ active: filters.source === source.source }"
-            type="button"
-            @click="setSource(source.source)"
-          >
-            {{ source.source }} <span>{{ source.count }}</span>
-          </button>
-        </div>
-
-        <div class="filter-section">
           <p>分類</p>
           <button
             class="chip"
@@ -589,7 +567,7 @@ onMounted(async () => {
             @click="selectArticle(article.id)"
           >
             <div class="card-topline">
-              <span class="source">{{ article.source }}</span>
+              <span class="source">資料來源：{{ article.source }}</span>
               <span class="score-badge">趨勢 {{ formatTrendScore(article.trend_score) }}</span>
             </div>
             <h3>{{ article.title }}</h3>

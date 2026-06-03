@@ -597,7 +597,7 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: 270px minmax(360px, 0.95fr) minmax(430px, 1.35fr);
+  grid-template-columns: 235px minmax(360px, 0.95fr) minmax(430px, 1.35fr);
   gap: 16px;
   align-items: start;
 }
