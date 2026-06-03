@@ -1,11 +1,10 @@
 import json
 import re
-import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta
 
 from database import (
-    DB_NAME,
+    connect_db,
     save_generated_search_queries,
     save_weekly_emerging_topics,
 )
@@ -70,8 +69,7 @@ def is_good_term(term):
 
 def load_recent_articles(days=7):
     since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db()
     rows = conn.execute(
         """
         SELECT id, title, source, category, summary, ai_summary,

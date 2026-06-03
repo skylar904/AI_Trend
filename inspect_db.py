@@ -1,7 +1,7 @@
-import sqlite3
 import sys
+from datetime import datetime, timedelta
 
-from database import DB_NAME, init_db
+from database import connect_db, db_label, init_db
 
 
 def safe_text(value):
@@ -16,9 +16,9 @@ def fetch_all(cursor, sql, values=()):
 
 def main():
     init_db()
+    since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
 
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db() as conn:
         cursor = conn.cursor()
 
         total = cursor.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
@@ -90,14 +90,15 @@ def main():
                    ) AS discussion_score,
                    GROUP_CONCAT(DISTINCT source) AS sources
             FROM articles
-            WHERE date(created_at) >= date('now', '-7 days')
+            WHERE created_at >= ?
             GROUP BY COALESCE(ai_category, category, '未分類')
             ORDER BY discussion_score DESC, article_count DESC, name
             LIMIT 5
             """,
+            (since,),
         )
 
-    print(f"資料庫：{DB_NAME}")
+    print(f"資料庫：{db_label()}")
     print(f"文章總數：{total}")
     print(f"最新收錄：{latest or '尚無資料'}")
 

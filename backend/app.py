@@ -1,5 +1,5 @@
 import json
-import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -7,11 +7,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from database import connect_db, table_exists
 from project_advisor import advise_project
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-DB_PATH = BASE_DIR / "articles.db"
 PUBLIC_DIR = BASE_DIR / "public"
 INDEX_PATH = PUBLIC_DIR / "index.html"
 
@@ -29,14 +29,8 @@ app.add_middleware(
 )
 
 
-def connect_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def row_to_dict(row):
-    return {key: row[key] for key in row.keys()}
+    return dict(row)
 
 
 def parse_json(value, fallback=None):
@@ -46,14 +40,6 @@ def parse_json(value, fallback=None):
         return json.loads(value) if value else fallback
     except json.JSONDecodeError:
         return fallback
-
-
-def table_exists(conn, table_name):
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table_name,),
-    ).fetchone()
-    return row is not None
 
 
 def get_article_entities(conn, article_ids):
@@ -97,14 +83,14 @@ def get_platform_items(platform, limit):
 
         rows = conn.execute(
             """
-            SELECT id, platform, item_id, name, url, description, rank, score,
+            SELECT id, platform, item_id, name, url, description, `rank`, score,
                    primary_metric_name, primary_metric_value,
                    secondary_metric_name, secondary_metric_value,
                    category, tags, metrics, ai_summary, usage_guide, target_users,
                    popularity_reason, quickstart, ai_analysis, analyzed_at, fetched_at
             FROM platform_items
             WHERE platform = ?
-            ORDER BY rank ASC, score DESC
+            ORDER BY `rank` ASC, score DESC
             LIMIT ?
             """,
             (platform, limit),
@@ -289,6 +275,7 @@ def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
 
 @app.get("/api/dashboard/weekly-topics")
 def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
+    since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
     with connect_db() as conn:
         has_entities = table_exists(conn, "entities") and table_exists(conn, "article_entities")
 
@@ -308,12 +295,12 @@ def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
                 FROM entities e
                 JOIN article_entities ae ON ae.entity_id = e.id
                 JOIN articles a ON a.id = ae.article_id
-                WHERE date(a.created_at) >= date('now', '-7 days')
+                WHERE a.created_at >= ?
                 GROUP BY e.id, e.canonical_name, e.entity_type
                 ORDER BY discussion_score DESC, article_count DESC, e.canonical_name
                 LIMIT ?
                 """,
-                (limit,),
+                (since, limit),
             ).fetchall()
             topics = [row_to_dict(row) for row in rows]
             if topics:
@@ -339,12 +326,12 @@ def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
                    ) AS discussion_score,
                    GROUP_CONCAT(DISTINCT source) AS sources
             FROM articles
-            WHERE date(created_at) >= date('now', '-7 days')
+            WHERE created_at >= ?
             GROUP BY COALESCE(ai_category, category, '未分類')
             ORDER BY discussion_score DESC, article_count DESC, name
             LIMIT ?
             """,
-            (limit,),
+            (since, limit),
         ).fetchall()
 
     topics = [row_to_dict(row) for row in rows]

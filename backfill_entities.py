@@ -1,9 +1,8 @@
 import argparse
 import json
-import sqlite3
 
 from database import (
-    DB_NAME,
+    connect_db,
     init_db,
     link_article_entity,
     update_article_trend_metadata,
@@ -27,8 +26,7 @@ def parse_args():
 
 
 def load_articles(limit):
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db() as conn:
         rows = conn.execute(
             """
             SELECT a.id, a.title, a.link, a.source, a.category, a.published,
