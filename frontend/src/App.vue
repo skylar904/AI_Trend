@@ -424,23 +424,34 @@ onMounted(async () => {
             <div class="ranking-main">
               <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
               <p>{{ item.description || "No description" }}</p>
-              <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+              <details
+                v-if="
+                  item.ai_analysis?.what_it_does ||
+                  item.ai_analysis?.best_for ||
+                  analysisList(item.ai_analysis?.similar_projects).length
+                "
+                class="ranking-analysis"
+              >
                 <summary>AI 解讀</summary>
                 <div class="ranking-analysis-body">
-                  <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
-                  <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
-                    <span>用途</span>
+                  <div v-if="item.ai_analysis?.what_it_does" class="analysis-row">
+                    <span>在做什麼</span>
+                    <p>{{ item.ai_analysis.what_it_does }}</p>
+                  </div>
+                  <div v-if="item.ai_analysis?.best_for" class="analysis-row">
+                    <span>適合誰</span>
+                    <p>{{ item.ai_analysis.best_for }}</p>
+                  </div>
+                  <div v-if="analysisList(item.ai_analysis?.similar_projects).length" class="analysis-row">
+                    <span>類似專案</span>
                     <ul>
-                      <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                      <li
+                        v-for="project in analysisList(item.ai_analysis.similar_projects)"
+                        :key="project"
+                      >
+                        {{ project }}
+                      </li>
                     </ul>
-                  </div>
-                  <div v-if="item.quickstart" class="analysis-row">
-                    <span>開始</span>
-                    <p>{{ item.quickstart }}</p>
-                  </div>
-                  <div v-if="item.popularity_reason" class="analysis-row">
-                    <span>熱門原因</span>
-                    <p>{{ item.popularity_reason }}</p>
                   </div>
                 </div>
               </details>
@@ -465,23 +476,34 @@ onMounted(async () => {
             <div class="ranking-main">
               <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
               <p>{{ item.category || "model" }}</p>
-              <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+              <details
+                v-if="
+                  item.ai_analysis?.what_it_does ||
+                  item.ai_analysis?.best_for ||
+                  analysisList(item.ai_analysis?.similar_projects).length
+                "
+                class="ranking-analysis"
+              >
                 <summary>AI 解讀</summary>
                 <div class="ranking-analysis-body">
-                  <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
-                  <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
-                    <span>用途</span>
+                  <div v-if="item.ai_analysis?.what_it_does" class="analysis-row">
+                    <span>在做什麼</span>
+                    <p>{{ item.ai_analysis.what_it_does }}</p>
+                  </div>
+                  <div v-if="item.ai_analysis?.best_for" class="analysis-row">
+                    <span>適合誰</span>
+                    <p>{{ item.ai_analysis.best_for }}</p>
+                  </div>
+                  <div v-if="analysisList(item.ai_analysis?.similar_projects).length" class="analysis-row">
+                    <span>類似專案</span>
                     <ul>
-                      <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                      <li
+                        v-for="project in analysisList(item.ai_analysis.similar_projects)"
+                        :key="project"
+                      >
+                        {{ project }}
+                      </li>
                     </ul>
-                  </div>
-                  <div v-if="item.quickstart" class="analysis-row">
-                    <span>開始</span>
-                    <p>{{ item.quickstart }}</p>
-                  </div>
-                  <div v-if="item.popularity_reason" class="analysis-row">
-                    <span>熱門原因</span>
-                    <p>{{ item.popularity_reason }}</p>
                   </div>
                 </div>
               </details>

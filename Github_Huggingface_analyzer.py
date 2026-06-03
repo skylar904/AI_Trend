@@ -5,25 +5,25 @@ from summarizer import MODEL, extract_json, get_client
 
 
 def fallback_platform_analysis(item, error=None):
-    description = item.get("description") or "這個項目目前沒有足夠的 README 或 model card 可供分析。"
-    reason = "AI 分析失敗，暫時使用平台原始描述。"
+    description = item.get("description") or "No README or model card content was available."
+    note = "AI analysis was not available."
     if error:
-        reason = f"{reason} 錯誤：{error}"
+        note = f"{note} Error: {error}"
+
+    analysis = {
+        "what_it_does": description,
+        "best_for": "Readers who want a quick overview of this repository or model.",
+        "similar_projects": [],
+        "analysis_note": note,
+    }
 
     return {
-        "ai_summary": description,
-        "usage_guide": "請先開啟原始連結查看 README、文件或 model card。",
-        "target_users": "想快速理解熱門開源專案或模型的讀者。",
-        "popularity_reason": reason,
-        "quickstart": "開啟連結後，優先查看安裝方式、範例程式與使用限制。",
-        "ai_analysis": {
-            "what_it_is": description,
-            "main_uses": [],
-            "target_users": ["一般讀者"],
-            "how_to_start": ["開啟原始連結查看文件"],
-            "why_popular": reason,
-            "caveats": [],
-        },
+        "ai_summary": analysis["what_it_does"],
+        "usage_guide": "",
+        "target_users": analysis["best_for"],
+        "popularity_reason": "",
+        "quickstart": "",
+        "ai_analysis": analysis,
         "analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -39,33 +39,35 @@ def analyze_platform_item(item):
     source_text = item.get("analysis_source", "")
 
     prompt = f"""
-你是一個 AI/開源工具排行榜的產品分析員。
+You are analyzing a popular GitHub repository or Hugging Face model for an AI trend dashboard.
+Return only valid JSON. Do not use Markdown.
+Write all user-facing values in Traditional Chinese.
+Keep every answer concise.
 
-請根據 GitHub README 或 Hugging Face model card，幫一般讀者快速理解這個熱門項目。
-只輸出 JSON，不要 Markdown，不要 JSON 以外的文字。
+Repository/model metadata:
+- platform: {platform}
+- name: {name}
+- url: {url}
+- description: {description}
+- category/language/task: {category}
+- tags: {tags}
+- metrics: {metrics}
 
-請用繁體中文，保持具體、短句、可操作。
-
-平台：{platform}
-名稱：{name}
-連結：{url}
-平台描述：{description}
-分類/任務：{category}
-標籤：{tags}
-平台指標：{metrics}
-
-README 或 model card 內容：
+README or model card excerpt:
 {source_text}
 
-請輸出 JSON schema：
+Required JSON schema:
 {{
-  "what_it_is": "用 2~3 句說明這是什麼",
-  "main_uses": ["主要用途 1", "主要用途 2", "主要用途 3"],
-  "target_users": ["適合使用者 1", "適合使用者 2"],
-  "how_to_start": ["第一步", "第二步", "第三步"],
-  "why_popular": "用 1~2 句說明為什麼它會上熱門",
-  "caveats": ["使用限制或注意事項 1", "使用限制或注意事項 2"]
+  "what_it_does": "1 to 2 short sentences explaining what this project/model does.",
+  "best_for": "1 short sentence explaining who should care about it.",
+  "similar_projects": ["similar project or model 1", "similar project or model 2", "similar project or model 3"]
 }}
+
+Rules:
+- If similar projects are not obvious from the README/model card, infer reasonable well-known alternatives from the project purpose.
+- Do not include installation steps.
+- Do not explain why it is popular.
+- Do not output more than 3 similar projects.
 """
 
     try:
@@ -78,20 +80,26 @@ README 或 model card 內容：
         return fallback_platform_analysis(item, error)
 
     analysis = {
-        "what_it_is": str(data.get("what_it_is") or "").strip(),
-        "main_uses": [str(value).strip() for value in data.get("main_uses", []) if value],
-        "target_users": [str(value).strip() for value in data.get("target_users", []) if value],
-        "how_to_start": [str(value).strip() for value in data.get("how_to_start", []) if value],
-        "why_popular": str(data.get("why_popular") or "").strip(),
-        "caveats": [str(value).strip() for value in data.get("caveats", []) if value],
+        "what_it_does": str(data.get("what_it_does") or "").strip(),
+        "best_for": str(data.get("best_for") or "").strip(),
+        "similar_projects": [
+            str(value).strip()
+            for value in data.get("similar_projects", [])
+            if str(value).strip()
+        ][:3],
     }
 
+    if not analysis["what_it_does"]:
+        analysis["what_it_does"] = description
+    if not analysis["best_for"]:
+        analysis["best_for"] = "想快速理解這個熱門專案或模型的讀者。"
+
     return {
-        "ai_summary": analysis["what_it_is"],
-        "usage_guide": "\n".join(analysis["how_to_start"]),
-        "target_users": "、".join(analysis["target_users"]),
-        "popularity_reason": analysis["why_popular"],
-        "quickstart": analysis["how_to_start"][0] if analysis["how_to_start"] else "",
+        "ai_summary": analysis["what_it_does"],
+        "usage_guide": "",
+        "target_users": analysis["best_for"],
+        "popularity_reason": "",
+        "quickstart": "",
         "ai_analysis": analysis,
         "analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
