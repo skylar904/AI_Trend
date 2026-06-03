@@ -424,10 +424,6 @@ onMounted(async () => {
             <div class="ranking-main">
               <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
               <p>{{ item.description || "No description" }}</p>
-              <div class="ranking-tags">
-                <span v-if="item.category">{{ item.category }}</span>
-                <span v-for="tag in item.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
-              </div>
               <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
                 <summary>AI 解讀</summary>
                 <div class="ranking-analysis-body">
@@ -449,7 +445,7 @@ onMounted(async () => {
                 </div>
               </details>
             </div>
-            <strong class="ranking-metric">{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+            <strong class="ranking-metric">★ {{ formatPlatformMetric(item.primary_metric_value) }}</strong>
           </li>
         </ol>
       </div>
@@ -469,9 +465,6 @@ onMounted(async () => {
             <div class="ranking-main">
               <a :href="item.url" target="_blank" rel="noreferrer">{{ item.name }}</a>
               <p>{{ item.category || "model" }}</p>
-              <div class="ranking-tags">
-                <span v-for="tag in item.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
-              </div>
               <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
                 <summary>AI 解讀</summary>
                 <div class="ranking-analysis-body">
@@ -493,7 +486,7 @@ onMounted(async () => {
                 </div>
               </details>
             </div>
-            <strong class="ranking-metric">{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+            <strong class="ranking-metric">★ {{ formatPlatformMetric(item.primary_metric_value) }}</strong>
           </li>
         </ol>
       </div>
