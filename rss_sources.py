@@ -82,6 +82,21 @@ RSS_FEEDS = [
         1.1,
     ),
     feed(
+        "Vox Technology / Recode",
+        "https://www.vox.com/rss/technology/index.xml",
+        "產業新聞",
+        "industry",
+        1.0,
+    ),
+    feed("Techmeme", "https://www.techmeme.com/feed.xml", "產業新聞", "industry", 1.0),
+    feed(
+        "WIRED AI",
+        "https://www.wired.com/feed/tag/ai/latest/rss",
+        "產業新聞",
+        "industry",
+        1.0,
+    ),
+    feed(
         "The Verge AI",
         "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
         "產業新聞",

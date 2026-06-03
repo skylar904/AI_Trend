@@ -41,8 +41,8 @@ const filters = reactive({
 
 let searchTimer = null;
 
-const activeSourceLabel = computed(() => filters.source || "全部來源");
-const activeCategoryLabel = computed(() => filters.category || "全部分類");
+const activeSourceLabel = computed(() => filters.source || "All sources");
+const activeCategoryLabel = computed(() => filters.category || "All categories");
 const topEntities = computed(() => entities.value.slice(0, 8));
 
 function plainPreview(text) {
@@ -79,11 +79,11 @@ function formatTrendScore(value) {
 
 function trendComponentEntries(components) {
   const labels = {
-    relevance: "相關性",
-    importance: "重要性",
-    source: "來源權重",
-    entity: "實體訊號",
-    recency: "近期性",
+    relevance: "Relevance",
+    importance: "Importance",
+    source: "Source",
+    entity: "Entity",
+    recency: "Recency",
   };
   return Object.entries(components || {}).map(([key, value]) => ({
     key,
@@ -94,18 +94,18 @@ function trendComponentEntries(components) {
 
 function entityTypeLabel(type) {
   const labels = {
-    tool: "工具",
-    company: "公司",
-    model: "模型",
-    framework: "框架",
-    product: "產品",
-    other: "其他",
+    tool: "Tool",
+    company: "Company",
+    model: "Model",
+    framework: "Framework",
+    product: "Product",
+    other: "Other",
   };
-  return labels[type] || "其他";
+  return labels[type] || "Other";
 }
 
 function topicTypeLabel(type) {
-  if (type === "category") return "分類";
+  if (type === "category") return "Category";
   return entityTypeLabel(type);
 }
 
@@ -122,10 +122,10 @@ function sourceTypeLabel(type) {
   const labels = {
     github: "GitHub",
     huggingface: "Hugging Face",
-    research: "研究",
+    research: "Research",
     web: "Web",
   };
-  return labels[type] || type || "來源";
+  return labels[type] || type || "Source";
 }
 
 async function loadStats() {
@@ -169,7 +169,7 @@ async function loadArticles() {
       selectedArticle.value = null;
     }
   } catch (err) {
-    error.value = "讀取文章失敗，請確認 Python API server 是否正在執行。";
+    error.value = "Failed to load articles. Check the Python API server.";
   } finally {
     loading.value = false;
   }
@@ -184,7 +184,7 @@ async function analyzeProject() {
   try {
     projectAdvice.value = await getProjectAdvice(query);
   } catch (err) {
-    projectError.value = "專案分析失敗，請稍後再試或縮短查詢內容。";
+    projectError.value = "Project analysis failed. Check API keys and backend logs.";
   } finally {
     projectLoading.value = false;
   }
@@ -235,39 +235,39 @@ onMounted(async () => {
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">AI Trend Desk</p>
-        <h1>AI 科技情報</h1>
-        <p class="hero-subtitle">把 RSS、AI 摘要與追蹤建議整理成可掃描的情報工作台。</p>
+        <h1>AI Trend Radar</h1>
+        <p class="hero-subtitle">AI trend dashboard with RSS, APIs, rankings, and AI analysis.</p>
       </div>
       <div class="hero-status">
-        <span>{{ stats.total }} 篇文章</span>
-        <span>更新 {{ stats.latest_created || "尚無資料" }}</span>
+        <span>{{ stats.total }} articles</span>
+        <span>Latest {{ stats.latest_created || "No data" }}</span>
       </div>
     </header>
 
-    <section class="metrics" aria-label="資料總覽">
+    <section class="metrics" aria-label="metrics">
       <div class="metric">
-        <span>文章總數</span>
+        <span>Total articles</span>
         <strong>{{ stats.total }}</strong>
       </div>
       <div class="metric">
-        <span>目前來源</span>
+        <span>Sources</span>
         <strong>{{ stats.sources.length }}</strong>
       </div>
       <div class="metric">
-        <span>目前分類</span>
+        <span>Categories</span>
         <strong>{{ stats.categories.length }}</strong>
       </div>
       <div class="metric metric-wide">
-        <span>目前篩選</span>
+        <span>Active filters</span>
         <strong>{{ activeSourceLabel }} / {{ activeCategoryLabel }}</strong>
       </div>
     </section>
 
-    <section class="project-advisor" aria-label="專案顧問">
+    <section class="project-advisor" aria-label="project advisor">
       <div class="panel-heading advisor-heading">
         <div>
           <p class="eyebrow">Project Advisor</p>
-          <h2>專案顧問</h2>
+          <h2>Project Advisor</h2>
         </div>
         <span>GitHub / Hugging Face / Research / Web</span>
       </div>
@@ -275,46 +275,46 @@ onMounted(async () => {
         <input
           v-model="projectQuery"
           type="search"
-          placeholder="輸入專案想法或未知技術名詞，例如：狗鼻紋辨識"
+          placeholder="Describe a project idea, tool, model, or unknown AI term"
         />
         <button type="submit" :disabled="projectLoading || !projectQuery.trim()">
-          {{ projectLoading ? "分析中..." : "分析" }}
+          {{ projectLoading ? "Analyzing..." : "Analyze" }}
         </button>
       </form>
 
       <p v-if="projectError" class="notice">{{ projectError }}</p>
       <div v-if="projectAdvice" class="advisor-result">
         <section>
-          <h3>專案本質</h3>
+          <h3>Project summary</h3>
           <p>{{ projectAdvice.project_nature }}</p>
         </section>
 
         <section>
-          <h3>GitHub 參考專案</h3>
-          <p v-if="!projectAdvice.github_projects?.length" class="muted-note">沒有找到明確相關專案。</p>
+          <h3>GitHub projects</h3>
+          <p v-if="!projectAdvice.github_projects?.length" class="muted-note">No matching GitHub projects found.</p>
           <div v-else class="advisor-cards">
             <article v-for="project in projectAdvice.github_projects" :key="project.url">
               <a :href="project.url" target="_blank" rel="noreferrer">{{ project.name }}</a>
               <p>{{ project.why_relevant }}</p>
-              <span>{{ project.language || "unknown" }} · {{ formatPlatformMetric(project.stars) }} stars</span>
+              <span>{{ project.language || "unknown" }} ? {{ formatPlatformMetric(project.stars) }} stars</span>
             </article>
           </div>
         </section>
 
         <section>
-          <h3>Hugging Face 可用模型</h3>
-          <p v-if="!projectAdvice.huggingface_models?.length" class="muted-note">沒有找到明確相關模型。</p>
+          <h3>Hugging Face models</h3>
+          <p v-if="!projectAdvice.huggingface_models?.length" class="muted-note">No matching Hugging Face models found.</p>
           <div v-else class="advisor-cards">
             <article v-for="model in projectAdvice.huggingface_models" :key="model.url">
               <a :href="model.url" target="_blank" rel="noreferrer">{{ model.name }}</a>
               <p>{{ model.why_relevant }}</p>
-              <span>{{ model.task || "model" }} · {{ formatPlatformMetric(model.downloads) }} downloads</span>
+              <span>{{ model.task || "model" }} ? {{ formatPlatformMetric(model.downloads) }} downloads</span>
             </article>
           </div>
         </section>
 
         <section>
-          <h3>相關研究方向</h3>
+          <h3>Research directions</h3>
           <div class="research-list">
             <a
               v-for="direction in projectAdvice.research_directions"
@@ -330,7 +330,7 @@ onMounted(async () => {
         </section>
 
         <section>
-          <h3>資料來源</h3>
+          <h3>Sources</h3>
           <div class="source-list">
             <a
               v-for="source in projectAdvice.sources"
@@ -339,23 +339,23 @@ onMounted(async () => {
               target="_blank"
               rel="noreferrer"
             >
-              {{ sourceTypeLabel(source.source_type) }} · {{ source.title }}
+              {{ sourceTypeLabel(source.source_type) }} ? {{ source.title }}
             </a>
           </div>
         </section>
       </div>
     </section>
 
-    <section class="weekly-topics" aria-label="本週討論度前五名">
+    <section class="weekly-topics" aria-label="weekly topics">
       <div class="panel-heading weekly-heading">
         <div>
           <p class="eyebrow">Weekly Signals</p>
-          <h2>本週討論度 Top 5</h2>
+          <h2>Weekly Discussion Top 5</h2>
         </div>
-        <span>近 7 天</span>
+        <span>last 7 days</span>
       </div>
 
-      <p v-if="!weeklyTopics.length" class="notice">尚無本週討論度資料。</p>
+      <p v-if="!weeklyTopics.length" class="notice">No weekly topic data yet.</p>
       <div v-else class="topic-chart">
         <article v-for="(topic, index) in weeklyTopics" :key="`${topic.topic_type}-${topic.name}`" class="topic-bar">
           <div class="topic-rank">{{ index + 1 }}</div>
@@ -364,8 +364,8 @@ onMounted(async () => {
               <div>
                 <h3>{{ topic.name }}</h3>
                 <p>
-                  {{ topicTypeLabel(topic.topic_type) }} · {{ topic.article_count }} 篇文章 ·
-                  {{ topic.source_count }} 個來源
+                  {{ topicTypeLabel(topic.topic_type) }} ? {{ topic.article_count }} articles ?
+                  {{ topic.source_count }} sources
                 </p>
               </div>
               <strong>{{ Number(topic.discussion_score || 0).toFixed(1) }}</strong>
@@ -381,26 +381,26 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="emerging-topics" aria-label="本週新興議題前五名">
+    <section class="emerging-topics" aria-label="emerging signals">
       <div class="panel-heading weekly-heading">
         <div>
           <p class="eyebrow">Emerging Signals</p>
-          <h2>本週新興議題 Top 5</h2>
+          <h2>Emerging Signals Top 5</h2>
         </div>
-        <span>近 7 天</span>
+        <span>last 7 days</span>
       </div>
 
-      <p v-if="!weeklyEmergingTopics.length" class="notice">尚無本週新興議題資料。</p>
+      <p v-if="!weeklyEmergingTopics.length" class="notice">No emerging signal data yet.</p>
       <div v-else class="emerging-list">
         <article v-for="(topic, index) in weeklyEmergingTopics" :key="topic.id" class="emerging-item">
           <div class="topic-rank">{{ index + 1 }}</div>
           <div class="emerging-main">
             <h3>{{ topic.term }}</h3>
             <div class="emerging-metrics">
-              <span>出現 {{ topic.mention_count }} 次</span>
-              <span>{{ topic.source_count }} 個來源</span>
-              <span>{{ topic.article_count }} 篇文章</span>
-              <span>趨勢分數 {{ Number(topic.trend_score_sum || 0).toFixed(1) }}</span>
+              <span>{{ topic.mention_count }} mentions</span>
+              <span>{{ topic.source_count }} sources</span>
+              <span>{{ topic.article_count }} articles</span>
+              <span>Trend score {{ Number(topic.trend_score_sum || 0).toFixed(1) }}</span>
             </div>
           </div>
           <strong>{{ Number(topic.weekly_signal_score || 0).toFixed(1) }}</strong>
@@ -408,16 +408,16 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="platform-rankings" aria-label="平台熱門排行榜">
+    <section class="platform-rankings" aria-label="platform rankings">
       <div class="platform-panel">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">GitHub</p>
-            <h2>全站熱門 Repo Top 10</h2>
+            <h2>GitHub Stars Top 10</h2>
           </div>
           <span>stars</span>
         </div>
-        <p v-if="!githubTop.length" class="notice">尚無 GitHub 排行資料。</p>
+        <p v-if="!githubTop.length" class="notice">No GitHub ranking data yet.</p>
         <ol v-else class="ranking-list">
           <li v-for="item in githubTop" :key="item.item_id">
             <span class="ranking-index">{{ item.rank }}</span>
@@ -428,25 +428,28 @@ onMounted(async () => {
                 <span v-if="item.category">{{ item.category }}</span>
                 <span v-for="tag in item.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
               </div>
-              <div v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
-                <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
-                <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
-                  <span>用途</span>
-                  <ul>
-                    <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
-                  </ul>
+              <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+                <summary>AI analysis</summary>
+                <div class="ranking-analysis-body">
+                  <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
+                  <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
+                    <span>Uses</span>
+                    <ul>
+                      <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                    </ul>
+                  </div>
+                  <div v-if="item.quickstart" class="analysis-row">
+                    <span>Start</span>
+                    <p>{{ item.quickstart }}</p>
+                  </div>
+                  <div v-if="item.popularity_reason" class="analysis-row">
+                    <span>Why popular</span>
+                    <p>{{ item.popularity_reason }}</p>
+                  </div>
                 </div>
-                <div v-if="item.quickstart" class="analysis-row">
-                  <span>開始</span>
-                  <p>{{ item.quickstart }}</p>
-                </div>
-                <div v-if="item.popularity_reason" class="analysis-row">
-                  <span>熱門原因</span>
-                  <p>{{ item.popularity_reason }}</p>
-                </div>
-              </div>
+              </details>
             </div>
-            <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+            <strong class="ranking-metric">{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
           </li>
         </ol>
       </div>
@@ -455,11 +458,11 @@ onMounted(async () => {
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Hugging Face</p>
-            <h2>全站熱門 Model Top 10</h2>
+            <h2>Hugging Face Downloads Top 10</h2>
           </div>
           <span>downloads</span>
         </div>
-        <p v-if="!huggingFaceTop.length" class="notice">尚無 Hugging Face 排行資料。</p>
+        <p v-if="!huggingFaceTop.length" class="notice">No Hugging Face ranking data yet.</p>
         <ol v-else class="ranking-list">
           <li v-for="item in huggingFaceTop" :key="item.item_id">
             <span class="ranking-index">{{ item.rank }}</span>
@@ -469,61 +472,64 @@ onMounted(async () => {
               <div class="ranking-tags">
                 <span v-for="tag in item.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
               </div>
-              <div v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
-                <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
-                <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
-                  <span>用途</span>
-                  <ul>
-                    <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
-                  </ul>
+              <details v-if="item.ai_summary || item.quickstart" class="ranking-analysis">
+                <summary>AI analysis</summary>
+                <div class="ranking-analysis-body">
+                  <p v-if="item.ai_summary">{{ item.ai_summary }}</p>
+                  <div v-if="analysisList(item.ai_analysis?.main_uses).length" class="analysis-row">
+                    <span>Uses</span>
+                    <ul>
+                      <li v-for="use in analysisList(item.ai_analysis.main_uses)" :key="use">{{ use }}</li>
+                    </ul>
+                  </div>
+                  <div v-if="item.quickstart" class="analysis-row">
+                    <span>Start</span>
+                    <p>{{ item.quickstart }}</p>
+                  </div>
+                  <div v-if="item.popularity_reason" class="analysis-row">
+                    <span>Why popular</span>
+                    <p>{{ item.popularity_reason }}</p>
+                  </div>
                 </div>
-                <div v-if="item.quickstart" class="analysis-row">
-                  <span>開始</span>
-                  <p>{{ item.quickstart }}</p>
-                </div>
-                <div v-if="item.popularity_reason" class="analysis-row">
-                  <span>熱門原因</span>
-                  <p>{{ item.popularity_reason }}</p>
-                </div>
-              </div>
+              </details>
             </div>
-            <strong>{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
+            <strong class="ranking-metric">{{ formatPlatformMetric(item.primary_metric_value) }}</strong>
           </li>
         </ol>
       </div>
     </section>
 
     <section class="workspace">
-      <aside class="filters-panel" aria-label="篩選條件">
-        <label class="search-label" for="article-search">搜尋</label>
+      <aside class="filters-panel" aria-label="filters">
+        <label class="search-label" for="article-search">Search</label>
         <input
           id="article-search"
           v-model="filters.query"
           class="search-input"
           type="search"
-          placeholder="搜尋標題、摘要或關鍵字"
+          placeholder="Search articles, sources, or entities"
         />
 
         <div class="filter-section">
-          <p>熱門實體</p>
+          <p>Top entities</p>
           <div v-if="topEntities.length" class="entity-list">
             <span v-for="entity in topEntities" :key="entity.id" class="entity-pill">
               {{ entity.canonical_name }}
-              <small>{{ entityTypeLabel(entity.entity_type) }} · {{ entity.mention_count }}</small>
+              <small>{{ entityTypeLabel(entity.entity_type) }} 蝜?{{ entity.mention_count }}</small>
             </span>
           </div>
-          <p v-else class="muted-note">尚未建立實體資料。</p>
+          <p v-else class="muted-note">No entity data yet.</p>
         </div>
 
         <div class="filter-section">
-          <p>來源</p>
+          <p>Sources</p>
           <button
             class="chip"
             :class="{ active: !filters.source }"
             type="button"
             @click="filters.source = ''"
           >
-            全部
+            ??賂?
           </button>
           <button
             v-for="source in stats.sources"
@@ -538,14 +544,14 @@ onMounted(async () => {
         </div>
 
         <div class="filter-section">
-          <p>分類</p>
+          <p>Categories</p>
           <button
             class="chip"
             :class="{ active: !filters.category }"
             type="button"
             @click="filters.category = ''"
           >
-            全部
+            ??賂?
           </button>
           <button
             v-for="category in stats.categories"
@@ -560,18 +566,18 @@ onMounted(async () => {
         </div>
       </aside>
 
-      <section class="feed-panel" aria-label="文章列表">
+      <section class="feed-panel" aria-label="article list">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Inbox</p>
-            <h2>文章列表</h2>
+            <h2>Articles</h2>
           </div>
-          <span>{{ articles.length }} 筆</span>
+          <span>{{ articles.length }} items</span>
         </div>
 
         <p v-if="error" class="notice">{{ error }}</p>
-        <p v-else-if="loading" class="notice">讀取文章中...</p>
-        <p v-else-if="!articles.length" class="notice">沒有符合條件的文章。</p>
+        <p v-else-if="loading" class="notice">??謘??∵???..</p>
+        <p v-else-if="!articles.length" class="notice">No articles match the current filters.</p>
 
         <div v-else class="article-list">
           <button
@@ -584,7 +590,7 @@ onMounted(async () => {
           >
             <div class="card-topline">
               <span class="source">{{ article.source }}</span>
-              <span class="score-badge">趨勢 {{ formatTrendScore(article.trend_score) }}</span>
+              <span class="score-badge">???{{ formatTrendScore(article.trend_score) }}</span>
             </div>
             <h3>{{ article.title }}</h3>
             <p>{{ plainPreview(article.preview) }}</p>
@@ -601,9 +607,9 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="detail-panel" aria-label="文章摘要">
-        <div v-if="detailLoading" class="empty-detail">讀取摘要中...</div>
-        <div v-else-if="!selectedArticle" class="empty-detail">選擇一篇文章查看摘要</div>
+      <section class="detail-panel" aria-label="????謢?">
+        <div v-if="detailLoading" class="empty-detail">??謘??秋撩??..</div>
+        <div v-else-if="!selectedArticle" class="empty-detail">Select an article to view details</div>
         <article v-else class="article-detail">
           <div class="detail-meta">
             <span>{{ selectedArticle.source }}</span>
@@ -611,14 +617,14 @@ onMounted(async () => {
             <span>{{ selectedArticle.published || selectedArticle.created_at }}</span>
           </div>
           <h2>{{ selectedArticle.title }}</h2>
-          <a :href="selectedArticle.link" target="_blank" rel="noreferrer">開啟原文</a>
+          <a :href="selectedArticle.link" target="_blank" rel="noreferrer">????賹?</a>
 
-          <section class="trend-box" aria-label="趨勢分數">
+          <section class="trend-box" aria-label="????">
             <div>
-              <span>趨勢分數</span>
+              <span>Trend score</span>
               <strong>{{ formatTrendScore(selectedArticle.trend_score) }}</strong>
             </div>
-            <p>{{ selectedArticle.trend_reason || "尚無分數解釋。" }}</p>
+            <p>{{ selectedArticle.trend_reason || "No trend score explanation yet" }}</p>
             <div class="component-grid">
               <span
                 v-for="component in trendComponentEntries(selectedArticle.trend_components)"
@@ -629,8 +635,8 @@ onMounted(async () => {
             </div>
           </section>
 
-          <section v-if="selectedArticle.entities?.length" class="detail-entities" aria-label="相關實體">
-            <h3>相關工具 / 模型 / 公司</h3>
+          <section v-if="selectedArticle.entities?.length" class="detail-entities" aria-label="?鞈???">
+            <h3>Entities</h3>
             <div class="entity-list">
               <span v-for="entity in selectedArticle.entities" :key="entity.id" class="entity-pill">
                 {{ entity.canonical_name }}

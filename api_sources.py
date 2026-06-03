@@ -125,6 +125,21 @@ API_SOURCES = [
         subreddits=["MachineLearning", "LocalLLaMA"],
         max_entries=10,
     ),
+    api_source(
+        "techcrunch_ai_api",
+        "TechCrunch AI API",
+        "wordpress_posts",
+        "產業新聞",
+        "industry",
+        1.1,
+        url="https://techcrunch.com/wp-json/wp/v2/posts",
+        params={
+            "search": "artificial intelligence OR AI OR machine learning OR startup",
+            "per_page": 8,
+            "_fields": "title,excerpt,link,date",
+        },
+        max_entries=8,
+    ),
 ]
 
 
@@ -138,4 +153,5 @@ API_RSS_REPLACEMENTS = {
     "hacker_news": {"Hacker News"},
     "product_hunt": {"Product Hunt"},
     "reddit_ai": {"Reddit MachineLearning", "Reddit LocalLLaMA"},
+    "techcrunch_ai_api": {"TechCrunch AI"},
 }

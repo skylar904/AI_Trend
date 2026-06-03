@@ -1,6 +1,8 @@
 import base64
+import html
 import json
 import os
+import re
 from datetime import datetime
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -163,6 +165,32 @@ def collect_huggingface_models(source):
                     model.get("lastModified", ""),
                 )
             )
+    return articles[: source["max_entries"]]
+
+
+def strip_html(value):
+    text = html.unescape(str(value or ""))
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
+
+
+def collect_wordpress_posts(source):
+    params = dict(source.get("params", {}))
+    params["per_page"] = min(int(params.get("per_page", source["max_entries"])), source["max_entries"])
+    data = request_json(source["url"], params=params)
+
+    articles = []
+    for post in data:
+        title = strip_html(post.get("title", {}).get("rendered", ""))
+        summary = strip_html(post.get("excerpt", {}).get("rendered", ""))
+        articles.append(
+            base_article(
+                source,
+                title,
+                post.get("link", ""),
+                summary,
+                post.get("date", ""),
+            )
+        )
     return articles[: source["max_entries"]]
 
 
@@ -427,6 +455,7 @@ COLLECTORS = {
     "hacker_news": collect_hacker_news,
     "product_hunt": collect_product_hunt,
     "reddit": collect_reddit,
+    "wordpress_posts": collect_wordpress_posts,
 }
 
 
