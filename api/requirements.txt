@@ -1,4 +1,5 @@
 fastapi==0.125.0
+cryptography==45.0.7
 openai==2.33.0
 pymysql==1.1.2
 python-dotenv==1.2.2
