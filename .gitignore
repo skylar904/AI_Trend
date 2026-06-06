@@ -5,3 +5,7 @@ frontend/node_modules/
 frontend/dist/
 .venv/
 public/
+*.sql
+.vscode/
+reports/*.md
+¶³ºÝ¥D¾÷.txt
