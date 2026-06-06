@@ -1,11 +1,17 @@
 __pycache__/
 *.pyc
+
 .env
+
 frontend/node_modules/
 frontend/dist/
 .venv/
 public/
-*.sql
+
+# Local editor settings
 .vscode/
+
+# Generated local artifacts
+*.sql
 reports/*.md
-¶³ºÝ¥D¾÷.txt
+*.txt
