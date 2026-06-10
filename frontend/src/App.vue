@@ -235,7 +235,7 @@ onMounted(async () => {
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">AI Trend Desk</p>
-        <h1>AI 趨勢雷達</h1>
+        <h1>AI 趨勢</h1>
         <p class="hero-subtitle">整合 RSS、API、熱門排行與 AI 分析，追蹤 AI 工具、模型、研究與產業訊號。</p>
       </div>
       <div class="hero-status">
