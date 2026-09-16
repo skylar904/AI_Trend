@@ -5,9 +5,6 @@ import json
 
 from dotenv import load_dotenv
 
-from entities import parse_aliases, serialize_aliases
-
-
 load_dotenv()
 
 DB_TYPE = os.getenv("DB_TYPE", "sqlite").strip().lower()
@@ -47,9 +44,23 @@ PLATFORM_ITEM_COLUMNS = {
     "analyzed_at": "TEXT",
 }
 
-WEEKLY_EMERGING_TOPIC_COLUMNS = {
-    "analysis_summary": "TEXT",
-    "generated_queries": "TEXT",
+PENDING_ARTICLE_COLUMNS = {
+    "source": "TEXT",
+    "category": "TEXT",
+    "published": "TEXT",
+    "summary": "TEXT",
+    "fingerprint": "TEXT",
+    "source_weight": "REAL DEFAULT 1",
+    "source_group": "TEXT",
+    "source_group_label": "TEXT",
+    "raw_payload": "TEXT",
+    "status": "TEXT",
+    "failure_reason": "TEXT",
+    "attempt_count": "INTEGER DEFAULT 0",
+    "last_attempt_at": "TEXT",
+    "completed_article_id": "INTEGER DEFAULT 0",
+    "created_at": "TEXT",
+    "updated_at": "TEXT",
 }
 
 
@@ -221,8 +232,6 @@ def text_type(column):
         "ai_category": "VARCHAR(191)",
         "source_group": "VARCHAR(64)",
         "source_group_label": "VARCHAR(191)",
-        "canonical_name": "VARCHAR(191)",
-        "entity_type": "VARCHAR(64)",
         "platform": "VARCHAR(64)",
         "item_id": "VARCHAR(255)",
         "name": "VARCHAR(255)",
@@ -232,6 +241,7 @@ def text_type(column):
         "week_start": "VARCHAR(32)",
         "week_end": "VARCHAR(32)",
         "term": "VARCHAR(191)",
+        "topic_date": "VARCHAR(32)",
         "query": "VARCHAR(512)",
         "created_at": "VARCHAR(32)",
         "updated_at": "VARCHAR(32)",
@@ -241,6 +251,7 @@ def text_type(column):
         "last_seen_at": "VARCHAR(32)",
         "collected_at": "VARCHAR(32)",
         "published": "VARCHAR(128)",
+        "status": "VARCHAR(32)",
     }
     return varchar_columns.get(column, "TEXT")
 
@@ -291,31 +302,6 @@ def init_db():
     """)
 
     cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS entities (
-            id {integer_pk_type()},
-            canonical_name {text_type("canonical_name")} NOT NULL UNIQUE,
-            entity_type {text_type("entity_type")},
-            aliases {text_type("aliases")},
-            mention_count INTEGER DEFAULT 0,
-            trend_score REAL DEFAULT 0,
-            first_seen_at {text_type("first_seen_at")},
-            last_seen_at {text_type("last_seen_at")},
-            created_at {text_type("created_at")}
-        )
-    """)
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS article_entities (
-            article_id INTEGER NOT NULL,
-            entity_id INTEGER NOT NULL,
-            confidence REAL DEFAULT 0,
-            evidence {text_type("evidence")},
-            created_at {text_type("created_at")},
-            PRIMARY KEY (article_id, entity_id)
-        )
-    """)
-
-    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS platform_items (
             id {integer_pk_type()},
             platform {text_type("platform")} NOT NULL,
@@ -347,45 +333,62 @@ def init_db():
     """)
 
     cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS weekly_emerging_topics (
+        CREATE TABLE IF NOT EXISTS daily_topics (
             id {integer_pk_type()},
-            week_start {text_type("week_start")} NOT NULL,
-            week_end {text_type("week_end")} NOT NULL,
+            topic_date {text_type("topic_date")} NOT NULL,
             term {text_type("term")} NOT NULL,
             mention_count INTEGER DEFAULT 0,
             source_count INTEGER DEFAULT 0,
             article_count INTEGER DEFAULT 0,
             trend_score_sum REAL DEFAULT 0,
-            weekly_signal_score REAL DEFAULT 0,
-            analysis_summary {text_type("analysis_summary")},
-            generated_queries {text_type("generated_queries")},
-            created_at {text_type("created_at")},
-            updated_at {text_type("updated_at")},
-            UNIQUE(week_start, term)
-        )
-    """)
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS weekly_emerging_topic_articles (
-            topic_id INTEGER NOT NULL,
-            article_id INTEGER NOT NULL,
-            evidence {text_type("evidence")},
-            created_at {text_type("created_at")},
-            PRIMARY KEY (topic_id, article_id)
-        )
-    """)
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS generated_search_queries (
-            id {integer_pk_type()},
-            term {text_type("term")} NOT NULL,
-            platform {text_type("platform")} NOT NULL,
-            query {text_type("query")} NOT NULL,
+            topic_score REAL DEFAULT 0,
             reason {text_type("reason")},
-            active INTEGER DEFAULT 1,
+            evidence_articles {text_type("evidence_articles")},
             created_at {text_type("created_at")},
             updated_at {text_type("updated_at")},
-            UNIQUE(term, platform, query)
+            UNIQUE(topic_date, term)
+        )
+    """)
+
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS topic_stats (
+            id {integer_pk_type()},
+            term {text_type("term")} NOT NULL UNIQUE,
+            total_mentions INTEGER DEFAULT 0,
+            total_article_count INTEGER DEFAULT 0,
+            total_source_count INTEGER DEFAULT 0,
+            active_days INTEGER DEFAULT 0,
+            trend_score_sum REAL DEFAULT 0,
+            topic_score REAL DEFAULT 0,
+            first_seen_at {text_type("first_seen_at")},
+            last_seen_at {text_type("last_seen_at")},
+            evidence_articles {text_type("evidence_articles")},
+            created_at {text_type("created_at")},
+            updated_at {text_type("updated_at")}
+        )
+    """)
+
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS pending_articles (
+            id {integer_pk_type()},
+            title {text_type("title")} NOT NULL,
+            link {text_type("link")} NOT NULL UNIQUE,
+            source {text_type("source")},
+            category {text_type("category")},
+            published {text_type("published")},
+            summary {text_type("summary")},
+            fingerprint {text_type("fingerprint")},
+            source_weight REAL DEFAULT 1,
+            source_group {text_type("source_group")},
+            source_group_label {text_type("source_group_label")},
+            raw_payload {text_type("raw_payload")},
+            status {text_type("status")} DEFAULT 'pending',
+            failure_reason {text_type("failure_reason")},
+            attempt_count INTEGER DEFAULT 0,
+            last_attempt_at {text_type("last_attempt_at")},
+            completed_article_id INTEGER DEFAULT 0,
+            created_at {text_type("created_at")},
+            updated_at {text_type("updated_at")}
         )
     """)
 
@@ -404,15 +407,13 @@ def init_db():
         if column not in platform_columns:
             cursor.execute(f"ALTER TABLE platform_items ADD COLUMN {column} {db_column_type(column, column_type)}")
 
-    weekly_topic_columns = get_table_columns(conn, "weekly_emerging_topics")
-    for column, column_type in WEEKLY_EMERGING_TOPIC_COLUMNS.items():
-        if column not in weekly_topic_columns:
-            cursor.execute(f"ALTER TABLE weekly_emerging_topics ADD COLUMN {column} {db_column_type(column, column_type)}")
+    pending_article_columns = get_table_columns(conn, "pending_articles")
+    for column, column_type in PENDING_ARTICLE_COLUMNS.items():
+        if column not in pending_article_columns:
+            cursor.execute(f"ALTER TABLE pending_articles ADD COLUMN {column} {db_column_type(column, column_type)}")
 
     create_index_if_not_exists(conn, "idx_articles_fingerprint", "articles", "fingerprint")
     create_index_if_not_exists(conn, "idx_articles_trend_score", "articles", "trend_score")
-    create_index_if_not_exists(conn, "idx_entities_trend_score", "entities", "trend_score")
-    create_index_if_not_exists(conn, "idx_article_entities_entity", "article_entities", "entity_id")
     create_index_if_not_exists(
         conn,
         "idx_platform_items_platform_rank",
@@ -422,15 +423,16 @@ def init_db():
     create_index_if_not_exists(conn, "idx_platform_items_fetched_at", "platform_items", "fetched_at")
     create_index_if_not_exists(
         conn,
-        "idx_weekly_emerging_topics_score",
-        "weekly_emerging_topics",
-        "week_start, weekly_signal_score",
+        "idx_daily_topics_date_score",
+        "daily_topics",
+        "topic_date, topic_score",
     )
+    create_index_if_not_exists(conn, "idx_topic_stats_score", "topic_stats", "topic_score")
     create_index_if_not_exists(
         conn,
-        "idx_generated_search_queries_platform",
-        "generated_search_queries",
-        "platform, active",
+        "idx_pending_articles_status",
+        "pending_articles",
+        "status, updated_at",
     )
 
     conn.commit()
@@ -473,6 +475,9 @@ def is_article_exists_by_identity(link, fingerprint):
 def save_article(article):
     conn = connect_db()
     cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    created_at = article.get("created_at") or now
+    collected_at = article.get("collected_at") or created_at
 
     try:
         cursor.execute("""
@@ -497,12 +502,12 @@ def save_article(article):
             article.get("trend_score", 0),
             article.get("ai_category", ""),
             article.get("reason", ""),
-            article.get("collected_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            collected_at,
             article.get("trend_reason", ""),
             article.get("trend_components", ""),
             article.get("source_group", ""),
             article.get("source_group_label", ""),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            created_at
         ))
 
         conn.commit()
@@ -515,102 +520,192 @@ def save_article(article):
     return article_id
 
 
-def upsert_entity(entity, article_trend_score=0):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    canonical_name = entity["canonical_name"]
-    entity_type = entity.get("entity_type", "other")
-    aliases = [canonical_name, entity.get("name", "")]
+def normalize_article_row(row):
+    article = dict(row)
+    article["trend_score"] = float(article.get("trend_score") or 0)
+    article["relevance_score"] = int(article.get("relevance_score") or 0)
+    article["importance_score"] = int(article.get("importance_score") or 0)
+    return article
 
+
+def get_article_by_id(article_id):
     conn = connect_db()
     cursor = conn.cursor()
-
     row = cursor.execute(
-        "SELECT * FROM entities WHERE canonical_name = ?",
-        (canonical_name,),
+        """
+        SELECT id, title, link, source, category, published, summary, ai_summary,
+               fingerprint, relevance_score, importance_score, trend_score,
+               ai_category, reason, collected_at, trend_reason, trend_components,
+               source_group, source_group_label, created_at
+        FROM articles
+        WHERE id = ?
+        """,
+        (article_id,),
     ).fetchone()
-
-    if row:
-        merged_aliases = parse_aliases(row["aliases"]) + aliases
-        cursor.execute(
-            """
-            UPDATE entities
-            SET entity_type = COALESCE(NULLIF(?, ''), entity_type),
-                aliases = ?,
-                mention_count = mention_count + 1,
-                trend_score = trend_score + ?,
-                last_seen_at = ?
-            WHERE id = ?
-            """,
-            (
-                entity_type,
-                serialize_aliases(merged_aliases),
-                float(article_trend_score or 0),
-                now,
-                row["id"],
-            ),
-        )
-        entity_id = row["id"]
-    else:
-        cursor.execute(
-            """
-            INSERT INTO entities (
-                canonical_name, entity_type, aliases, mention_count,
-                trend_score, first_seen_at, last_seen_at, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                canonical_name,
-                entity_type,
-                serialize_aliases(aliases),
-                1,
-                float(article_trend_score or 0),
-                now,
-                now,
-                now,
-            ),
-        )
-        entity_id = cursor.lastrowid
-
-    conn.commit()
     conn.close()
-    return entity_id
+    return normalize_article_row(row) if row else None
 
 
-def link_article_entity(article_id, entity_id, confidence=0, evidence=""):
+def get_articles_by_date(article_date, limit=None):
     conn = connect_db()
     cursor = conn.cursor()
+    sql = """
+        SELECT id, title, link, source, category, published, summary, ai_summary,
+               fingerprint, relevance_score, importance_score, trend_score,
+               ai_category, reason, collected_at, trend_reason, trend_components,
+               source_group, source_group_label, created_at
+        FROM articles
+        WHERE substr(created_at, 1, 10) = ?
+        ORDER BY trend_score DESC, id DESC
+    """
+    params = [article_date]
+    if limit and int(limit) > 0:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    rows = cursor.execute(sql, params).fetchall()
+    conn.close()
+    return [normalize_article_row(row) for row in rows]
+
+
+def pending_article_values(article, failure_reason, status="pending"):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return (
+        article.get("title", ""),
+        article.get("link", ""),
+        article.get("source", ""),
+        article.get("category", ""),
+        article.get("published", ""),
+        article.get("summary", ""),
+        article.get("fingerprint", ""),
+        float(article.get("source_weight", 1) or 1),
+        article.get("source_group", ""),
+        article.get("source_group_label", ""),
+        json.dumps(article, ensure_ascii=False),
+        status,
+        str(failure_reason or ""),
+        now,
+        now,
+    )
+
+
+def save_pending_article(article, failure_reason, status="pending"):
+    if not article.get("link"):
+        return None
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    values = pending_article_values(article, failure_reason, status)
 
     if USE_MYSQL:
         sql = """
-            INSERT INTO article_entities (
-                article_id, entity_id, confidence, evidence, created_at
+            INSERT INTO pending_articles (
+                title, link, source, category, published, summary, fingerprint,
+                source_weight, source_group, source_group_label, raw_payload,
+                status, failure_reason, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
-                confidence = VALUES(confidence),
-                evidence = VALUES(evidence),
-                created_at = VALUES(created_at)
+                title = VALUES(title),
+                source = VALUES(source),
+                category = VALUES(category),
+                published = VALUES(published),
+                summary = VALUES(summary),
+                fingerprint = VALUES(fingerprint),
+                source_weight = VALUES(source_weight),
+                source_group = VALUES(source_group),
+                source_group_label = VALUES(source_group_label),
+                raw_payload = VALUES(raw_payload),
+                status = VALUES(status),
+                failure_reason = VALUES(failure_reason),
+                updated_at = VALUES(updated_at)
         """
     else:
         sql = """
-            INSERT OR REPLACE INTO article_entities (
-                article_id, entity_id, confidence, evidence, created_at
+            INSERT INTO pending_articles (
+                title, link, source, category, published, summary, fingerprint,
+                source_weight, source_group, source_group_label, raw_payload,
+                status, failure_reason, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(link) DO UPDATE SET
+                title = excluded.title,
+                source = excluded.source,
+                category = excluded.category,
+                published = excluded.published,
+                summary = excluded.summary,
+                fingerprint = excluded.fingerprint,
+                source_weight = excluded.source_weight,
+                source_group = excluded.source_group,
+                source_group_label = excluded.source_group_label,
+                raw_payload = excluded.raw_payload,
+                status = excluded.status,
+                failure_reason = excluded.failure_reason,
+                updated_at = excluded.updated_at
         """
 
+    cursor.execute(sql, values)
+    conn.commit()
+    pending_id = cursor.lastrowid
+    conn.close()
+    return pending_id
+
+
+def get_pending_articles(limit=50, statuses=None):
+    statuses = statuses or ["pending", "failed"]
+    placeholders = ",".join(["?"] * len(statuses))
+    conn = connect_db()
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        f"""
+        SELECT id, title, link, source, category, published, summary, fingerprint,
+               source_weight, source_group, source_group_label, raw_payload,
+               status, failure_reason, attempt_count, last_attempt_at,
+               completed_article_id, created_at, updated_at
+        FROM pending_articles
+        WHERE status IN ({placeholders})
+        ORDER BY updated_at ASC, id ASC
+        LIMIT ?
+        """,
+        [*statuses, limit],
+    ).fetchall()
+    conn.close()
+
+    results = []
+    for row in rows:
+        item = dict(row)
+        try:
+            payload = json.loads(item.get("raw_payload") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        item["article"] = payload if isinstance(payload, dict) else {}
+        results.append(item)
+    return results
+
+
+def update_pending_article_status(pending_id, status, failure_reason="", completed_article_id=0):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = connect_db()
+    cursor = conn.cursor()
     cursor.execute(
-        sql,
+        """
+        UPDATE pending_articles
+        SET status = ?,
+            failure_reason = ?,
+            completed_article_id = ?,
+            last_attempt_at = ?,
+            updated_at = ?,
+            attempt_count = attempt_count + 1
+        WHERE id = ?
+        """,
         (
-            article_id,
-            entity_id,
-            float(confidence or 0),
-            str(evidence or ""),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            status,
+            str(failure_reason or ""),
+            int(completed_article_id or 0),
+            now,
+            now,
+            pending_id,
         ),
     )
-
     conn.commit()
     conn.close()
 
@@ -701,123 +796,195 @@ def save_platform_items(platform, items):
     conn.close()
 
 
-def save_weekly_emerging_topics(week_start, week_end, topics):
+def topic_share(rows, score_key="topic_score"):
+    max_score = max([float(row.get(score_key) or 0) for row in rows] or [1])
+    if max_score <= 0:
+        max_score = 1
+    for row in rows:
+        row["share"] = round(float(row.get(score_key) or 0) / max_score * 100, 2)
+    return rows
+
+
+def normalize_topic_row(row):
+    topic = dict(row)
+    topic["mention_count"] = int(topic.get("mention_count") or topic.get("total_mentions") or 0)
+    topic["article_count"] = int(topic.get("article_count") or topic.get("total_article_count") or 0)
+    topic["source_count"] = int(topic.get("source_count") or topic.get("total_source_count") or 0)
+    topic["trend_score_sum"] = float(topic.get("trend_score_sum") or 0)
+    topic["topic_score"] = float(topic.get("topic_score") or 0)
+    topic["weekly_signal_score"] = topic["topic_score"]
+    topic["articles"] = parse_json_array(topic.get("evidence_articles"))
+    topic["sources"] = sorted(
+        {
+            str(article.get("source")).strip()
+            for article in topic["articles"]
+            if isinstance(article, dict) and str(article.get("source") or "").strip()
+        }
+    )
+    return topic
+
+
+def parse_json_array(value):
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def save_daily_topics(topic_date, topics):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = connect_db()
     cursor = conn.cursor()
 
-    old_topic_ids = [
-        row[0]
-        for row in cursor.execute(
-            "SELECT id FROM weekly_emerging_topics WHERE week_start = ?",
-            (week_start,),
-        ).fetchall()
-    ]
-    if old_topic_ids:
-        placeholders = ",".join(["?"] * len(old_topic_ids))
-        cursor.execute(
-            f"DELETE FROM weekly_emerging_topic_articles WHERE topic_id IN ({placeholders})",
-            old_topic_ids,
-        )
-    cursor.execute("DELETE FROM weekly_emerging_topics WHERE week_start = ?", (week_start,))
+    cursor.execute("DELETE FROM daily_topics WHERE topic_date = ?", (topic_date,))
 
     for topic in topics:
+        term = str(topic.get("term") or "").strip()
+        if not term:
+            continue
         cursor.execute(
             """
-            INSERT INTO weekly_emerging_topics (
-                week_start, week_end, term, mention_count, source_count,
-                article_count, trend_score_sum, weekly_signal_score,
-                analysis_summary, generated_queries, created_at, updated_at
+            INSERT INTO daily_topics (
+                topic_date, term, mention_count, source_count, article_count,
+                trend_score_sum, topic_score, reason, evidence_articles,
+                created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                week_start,
-                week_end,
-                topic.get("term", ""),
+                topic_date,
+                term,
                 int(topic.get("mention_count", 0)),
                 int(topic.get("source_count", 0)),
                 int(topic.get("article_count", 0)),
                 float(topic.get("trend_score_sum", 0)),
-                float(topic.get("weekly_signal_score", 0)),
-                topic.get("analysis_summary", ""),
-                json.dumps(topic.get("generated_queries", []), ensure_ascii=False),
+                float(topic.get("topic_score", 0)),
+                topic.get("reason", ""),
+                json.dumps(topic.get("articles", []), ensure_ascii=False),
                 now,
                 now,
             ),
         )
-        topic_id = cursor.lastrowid
-        for article in topic.get("articles", []):
-            if USE_MYSQL:
-                sql = """
-                    INSERT INTO weekly_emerging_topic_articles (
-                        topic_id, article_id, evidence, created_at
-                    )
-                    VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        evidence = VALUES(evidence),
-                        created_at = VALUES(created_at)
-                """
-            else:
-                sql = """
-                    INSERT OR REPLACE INTO weekly_emerging_topic_articles (
-                        topic_id, article_id, evidence, created_at
-                    )
-                    VALUES (?, ?, ?, ?)
-                """
-            cursor.execute(
-                sql,
-                (
-                    topic_id,
-                    int(article.get("id")),
-                    article.get("evidence", ""),
-                    now,
-                ),
-            )
 
     conn.commit()
     conn.close()
 
 
-def save_generated_search_queries(term, queries):
+def get_daily_topics(topic_date=None, limit=5):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    if topic_date is None:
+        latest = cursor.execute("SELECT MAX(topic_date) AS topic_date FROM daily_topics").fetchone()
+        topic_date = latest["topic_date"] if latest else None
+
+    if not topic_date:
+        conn.close()
+        return []
+
+    rows = cursor.execute(
+        """
+        SELECT id, topic_date, term, mention_count, source_count, article_count,
+               trend_score_sum, topic_score, reason, evidence_articles,
+               created_at, updated_at
+        FROM daily_topics
+        WHERE topic_date = ?
+        ORDER BY topic_score DESC, mention_count DESC, article_count DESC, term
+        LIMIT ?
+        """,
+        (topic_date, limit),
+    ).fetchall()
+    conn.close()
+
+    return topic_share([normalize_topic_row(row) for row in rows])
+
+
+def get_topic_stats(limit=5):
+    conn = connect_db()
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        """
+        SELECT id, term, total_mentions, total_article_count, total_source_count,
+               active_days, trend_score_sum, topic_score, first_seen_at,
+               last_seen_at, evidence_articles, created_at, updated_at
+        FROM topic_stats
+        ORDER BY topic_score DESC, total_mentions DESC, active_days DESC, term
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    conn.close()
+
+    return topic_share([normalize_topic_row(row) for row in rows])
+
+
+def rebuild_topic_stats():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = connect_db()
     cursor = conn.cursor()
 
-    for query in queries:
-        platform = str(query.get("platform", "")).strip()
-        query_text = str(query.get("query", "")).strip()
-        if not platform or not query_text:
-            continue
-        if USE_MYSQL:
-            sql = """
-                INSERT INTO generated_search_queries (
-                    term, platform, query, reason, active, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, 1, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    reason = VALUES(reason),
-                    active = 1,
-                    updated_at = VALUES(updated_at)
-            """
-        else:
-            sql = """
-                INSERT INTO generated_search_queries (
-                    term, platform, query, reason, active, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, 1, ?, ?)
-                ON CONFLICT(term, platform, query) DO UPDATE SET
-                    reason = excluded.reason,
-                    active = 1,
-                    updated_at = excluded.updated_at
-            """
+    rows = cursor.execute(
+        """
+        SELECT topic_date, term, mention_count, source_count, article_count,
+               trend_score_sum, topic_score, evidence_articles
+        FROM daily_topics
+        ORDER BY topic_date ASC, topic_score DESC
+        """
+    ).fetchall()
+
+    stats = {}
+    for row in rows:
+        term = row["term"]
+        stat = stats.setdefault(
+            term,
+            {
+                "term": term,
+                "total_mentions": 0,
+                "total_article_count": 0,
+                "total_source_count": 0,
+                "active_days": 0,
+                "trend_score_sum": 0.0,
+                "topic_score": 0.0,
+                "first_seen_at": row["topic_date"],
+                "last_seen_at": row["topic_date"],
+                "articles": [],
+            },
+        )
+        stat["total_mentions"] += int(row["mention_count"] or 0)
+        stat["total_article_count"] += int(row["article_count"] or 0)
+        stat["total_source_count"] += int(row["source_count"] or 0)
+        stat["active_days"] += 1
+        stat["trend_score_sum"] += float(row["trend_score_sum"] or 0)
+        stat["topic_score"] += float(row["topic_score"] or 0)
+        stat["first_seen_at"] = min(stat["first_seen_at"], row["topic_date"])
+        stat["last_seen_at"] = max(stat["last_seen_at"], row["topic_date"])
+        stat["articles"].extend(parse_json_array(row["evidence_articles"])[:3])
+
+    cursor.execute("DELETE FROM topic_stats")
+    for stat in stats.values():
         cursor.execute(
-            sql,
+            """
+            INSERT INTO topic_stats (
+                term, total_mentions, total_article_count, total_source_count,
+                active_days, trend_score_sum, topic_score, first_seen_at,
+                last_seen_at, evidence_articles, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             (
-                term,
-                platform,
-                query_text,
-                query.get("reason", ""),
+                stat["term"],
+                stat["total_mentions"],
+                stat["total_article_count"],
+                stat["total_source_count"],
+                stat["active_days"],
+                round(stat["trend_score_sum"], 2),
+                round(stat["topic_score"], 2),
+                stat["first_seen_at"],
+                stat["last_seen_at"],
+                json.dumps(stat["articles"][:8], ensure_ascii=False),
                 now,
                 now,
             ),
@@ -825,32 +992,4 @@ def save_generated_search_queries(term, queries):
 
     conn.commit()
     conn.close()
-
-
-def get_active_generated_queries(platform=None):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    if platform:
-        rows = cursor.execute(
-            """
-            SELECT term, platform, query, reason
-            FROM generated_search_queries
-            WHERE active = 1 AND platform = ?
-            ORDER BY updated_at DESC, id DESC
-            """,
-            (platform,),
-        ).fetchall()
-    else:
-        rows = cursor.execute(
-            """
-            SELECT term, platform, query, reason
-            FROM generated_search_queries
-            WHERE active = 1
-            ORDER BY updated_at DESC, id DESC
-            """
-        ).fetchall()
-
-    result = [dict(row) for row in rows]
-    conn.close()
-    return result
+    return len(stats)

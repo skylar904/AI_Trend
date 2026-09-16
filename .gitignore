@@ -1,17 +1,29 @@
+# Python caches
 __pycache__/
+*/__pycache__/
 *.pyc
 
+# Local secrets
 .env
+*API KEY*.txt
+*api key*.txt
 
+# Python environment
+.venv/
+
+# Frontend dependencies and build output
 frontend/node_modules/
 frontend/dist/
-.venv/
 public/
 
 # Local editor settings
 .vscode/
 
-# Generated local artifacts
+# Local data and generated artifacts
+*.db
 *.sql
+outputs/
+report_assets/
+ppt_assets/
 reports/*.md
 *.txt

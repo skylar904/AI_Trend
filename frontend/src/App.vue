@@ -2,14 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   getArticle,
+  getArticleDates,
   getArticles,
-  getEntities,
   getGithubTop,
   getHuggingFaceTop,
   getProjectAdvice,
   getStats,
-  getWeeklyEmergingTopics,
-  getWeeklyTopics,
+  getTopicRankings,
 } from "./api";
 
 const stats = ref({
@@ -18,10 +17,10 @@ const stats = ref({
   categories: [],
   latest_created: "",
 });
+const articleDates = ref([]);
 const articles = ref([]);
-const entities = ref([]);
-const weeklyTopics = ref([]);
-const weeklyEmergingTopics = ref([]);
+const recentFocusTopics = ref([]);
+const todayTopics = ref([]);
 const githubTop = ref([]);
 const huggingFaceTop = ref([]);
 const projectQuery = ref("");
@@ -43,7 +42,22 @@ let searchTimer = null;
 
 const activeSourceLabel = computed(() => filters.source || "全部來源");
 const activeCategoryLabel = computed(() => filters.category || "全部分類");
-const topEntities = computed(() => entities.value.slice(0, 8));
+const selectedDate = ref("");
+const selectedDateIndex = computed(() => {
+  return articleDates.value.findIndex((item) => item.date === selectedDate.value);
+});
+const olderDate = computed(() => {
+  const index = selectedDateIndex.value;
+  return index >= 0 ? articleDates.value[index + 1] : null;
+});
+const newerDate = computed(() => {
+  const index = selectedDateIndex.value;
+  return index > 0 ? articleDates.value[index - 1] : null;
+});
+const selectedDateCount = computed(() => {
+  const selected = articleDates.value.find((item) => item.date === selectedDate.value);
+  return selected?.count || articles.value.length;
+});
 
 function plainPreview(text) {
   return String(text || "")
@@ -82,7 +96,6 @@ function trendComponentEntries(components) {
     relevance: "相關性",
     importance: "重要性",
     source: "來源權重",
-    entity: "實體訊號",
     recency: "近期性",
   };
   return Object.entries(components || {}).map(([key, value]) => ({
@@ -92,30 +105,9 @@ function trendComponentEntries(components) {
   }));
 }
 
-function entityTypeLabel(type) {
-  const labels = {
-    tool: "工具",
-    company: "公司",
-    model: "模型",
-    framework: "框架",
-    product: "產品",
-    other: "其他",
-  };
-  return labels[type] || "其他";
-}
-
-function topicTypeLabel(type) {
-  if (type === "category") return "分類";
-  return entityTypeLabel(type);
-}
-
 function formatPlatformMetric(value) {
   const number = Number(value || 0);
   return new Intl.NumberFormat("en-US", { notation: "compact" }).format(number);
-}
-
-function analysisList(value) {
-  return Array.isArray(value) ? value.filter(Boolean).slice(0, 3) : [];
 }
 
 function sourceTypeLabel(type) {
@@ -132,16 +124,26 @@ async function loadStats() {
   stats.value = await getStats();
 }
 
-async function loadEntities() {
-  entities.value = await getEntities();
+async function loadArticleDates() {
+  articleDates.value = await getArticleDates();
+  if (!articleDates.value.length) {
+    selectedDate.value = "";
+    return;
+  }
+
+  const stillAvailable = articleDates.value.some((item) => item.date === selectedDate.value);
+  if (!selectedDate.value || !stillAvailable) {
+    selectedDate.value = articleDates.value[0].date;
+  }
 }
 
-async function loadWeeklyTopics() {
-  weeklyTopics.value = await getWeeklyTopics();
-}
-
-async function loadWeeklyEmergingTopics() {
-  weeklyEmergingTopics.value = await getWeeklyEmergingTopics();
+async function loadTopicRankings() {
+  const [recentFocus, today] = await Promise.all([
+    getTopicRankings("all", 5),
+    getTopicRankings("today", 5),
+  ]);
+  recentFocusTopics.value = recentFocus;
+  todayTopics.value = today;
 }
 
 async function loadPlatformRankings() {
@@ -157,7 +159,7 @@ async function loadArticles() {
   loading.value = true;
   error.value = "";
   try {
-    articles.value = await getArticles(filters);
+    articles.value = await getArticles({ ...filters, date: selectedDate.value });
     if (articles.value.length) {
       const stillVisible = articles.value.some((article) => {
         return selectedArticle.value && article.id === selectedArticle.value.id;
@@ -207,8 +209,26 @@ function setCategory(category) {
   filters.category = filters.category === category ? "" : category;
 }
 
+function selectDate(date) {
+  if (date) {
+    selectedDate.value = date;
+  }
+}
+
+function showOlderDate() {
+  if (olderDate.value) {
+    selectDate(olderDate.value.date);
+  }
+}
+
+function showNewerDate() {
+  if (newerDate.value) {
+    selectDate(newerDate.value.date);
+  }
+}
+
 watch(
-  () => [filters.source, filters.category],
+  () => [filters.source, filters.category, selectedDate.value],
   () => loadArticles()
 );
 
@@ -222,10 +242,9 @@ watch(
 
 onMounted(async () => {
   await loadStats();
-  await loadEntities();
-  await loadWeeklyTopics();
-  await loadWeeklyEmergingTopics();
+  await loadTopicRankings();
   await loadPlatformRankings();
+  await loadArticleDates();
   await loadArticles();
 });
 </script>
@@ -235,12 +254,12 @@ onMounted(async () => {
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">AI Trend Desk</p>
-        <h1>AI 趨勢</h1>
-        <p class="hero-subtitle">整合 RSS、API、熱門排行與 AI 分析，追蹤 AI 工具、模型、研究與產業訊號。</p>
+        <h1>AI 趨勢情報台</h1>
+        <p class="hero-subtitle">從每日爬蟲、平台排行到 AI 摘要分析，集中追蹤工具、模型、研究與產業訊號。</p>
       </div>
       <div class="hero-status">
-        <span>{{ stats.total }} 篇文章</span>
-        <span>最近更新 {{ stats.latest_created || "尚無資料" }}</span>
+        <span>已收錄 {{ stats.total }} 篇</span>
+        <span>最近更新：{{ stats.latest_created || "尚無資料" }}</span>
       </div>
     </header>
 
@@ -257,10 +276,10 @@ onMounted(async () => {
         <span>分類數</span>
         <strong>{{ stats.categories.length }}</strong>
       </div>
-      <div class="metric metric-wide">
-        <span>目前篩選</span>
-        <strong>{{ activeSourceLabel }} / {{ activeCategoryLabel }}</strong>
-      </div>
+        <div class="metric metric-wide">
+          <span>目前篩選</span>
+          <strong>{{ selectedDate || "最新日期" }} / {{ activeSourceLabel }} / {{ activeCategoryLabel }}</strong>
+        </div>
     </section>
 
     <section class="project-advisor" aria-label="專案顧問">
@@ -275,10 +294,10 @@ onMounted(async () => {
         <input
           v-model="projectQuery"
           type="search"
-          placeholder="輸入專案想法、AI 工具、模型或未知技術名詞"
+          placeholder="輸入專案想法、AI 工具、模型或技術名詞"
         />
         <button type="submit" :disabled="projectLoading || !projectQuery.trim()">
-          {{ projectLoading ? "分析中..." : "分析" }}
+          {{ projectLoading ? "分析中..." : "開始分析" }}
         </button>
       </form>
 
@@ -346,29 +365,29 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="weekly-topics" aria-label="本週討論度排行">
+    <section class="weekly-topics" aria-label="近期焦點排行">
       <div class="panel-heading weekly-heading">
         <div>
-          <p class="eyebrow">Weekly Signals</p>
-          <h2>本週討論度 Top 5</h2>
+          <p class="eyebrow">Focus Signals</p>
+          <h2>近期焦點 TOP 5</h2>
         </div>
-        <span>最近 7 天</span>
+        <span>每日累積</span>
       </div>
 
-      <p v-if="!weeklyTopics.length" class="notice">尚無本週討論度資料。</p>
+      <p v-if="!recentFocusTopics.length" class="notice">尚無近期焦點資料。</p>
       <div v-else class="topic-chart">
-        <article v-for="(topic, index) in weeklyTopics" :key="`${topic.topic_type}-${topic.name}`" class="topic-bar">
+        <article v-for="(topic, index) in recentFocusTopics" :key="topic.term" class="topic-bar">
           <div class="topic-rank">{{ index + 1 }}</div>
           <div class="topic-main">
             <div class="topic-line">
               <div>
-                <h3>{{ topic.name }}</h3>
+                <h3>{{ topic.term }}</h3>
                 <p>
-                  {{ topicTypeLabel(topic.topic_type) }} / {{ topic.article_count }} 篇文章 /
+                  {{ topic.mention_count }} 次提及 / {{ topic.article_count }} 篇文章 /
                   {{ topic.source_count }} 個來源
                 </p>
               </div>
-              <strong>{{ Number(topic.discussion_score || 0).toFixed(1) }}</strong>
+              <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
             </div>
             <div class="bar-track" aria-hidden="true">
               <span :style="{ width: `${Math.max(topic.share || 0, 4)}%` }"></span>
@@ -381,18 +400,18 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="emerging-topics" aria-label="本週新興議題排行">
+    <section class="emerging-topics" aria-label="本日話題排行">
       <div class="panel-heading weekly-heading">
         <div>
-          <p class="eyebrow">Emerging Signals</p>
-          <h2>本週新興議題 Top 5</h2>
+          <p class="eyebrow">Today Signals</p>
+          <h2>本日話題 TOP 5</h2>
         </div>
-        <span>最近 7 天</span>
+        <span>今日新增</span>
       </div>
 
-      <p v-if="!weeklyEmergingTopics.length" class="notice">尚無新興議題資料。</p>
+      <p v-if="!todayTopics.length" class="notice">尚無本日話題資料。</p>
       <div v-else class="emerging-list">
-        <article v-for="(topic, index) in weeklyEmergingTopics" :key="topic.id" class="emerging-item">
+        <article v-for="(topic, index) in todayTopics" :key="topic.term" class="emerging-item">
           <div class="topic-rank">{{ index + 1 }}</div>
           <div class="emerging-main">
             <h3>{{ topic.term }}</h3>
@@ -403,7 +422,7 @@ onMounted(async () => {
               <span>趨勢分數 {{ Number(topic.trend_score_sum || 0).toFixed(1) }}</span>
             </div>
           </div>
-          <strong>{{ Number(topic.weekly_signal_score || 0).toFixed(1) }}</strong>
+          <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
         </article>
       </div>
     </section>
@@ -427,8 +446,7 @@ onMounted(async () => {
               <details
                 v-if="
                   item.ai_analysis?.what_it_does ||
-                  item.ai_analysis?.best_for ||
-                  analysisList(item.ai_analysis?.similar_projects).length
+                  item.ai_analysis?.best_for
                 "
                 class="ranking-analysis"
               >
@@ -441,17 +459,6 @@ onMounted(async () => {
                   <div v-if="item.ai_analysis?.best_for" class="analysis-row">
                     <span>適合誰</span>
                     <p>{{ item.ai_analysis.best_for }}</p>
-                  </div>
-                  <div v-if="analysisList(item.ai_analysis?.similar_projects).length" class="analysis-row">
-                    <span>類似專案</span>
-                    <ul>
-                      <li
-                        v-for="project in analysisList(item.ai_analysis.similar_projects)"
-                        :key="project"
-                      >
-                        {{ project }}
-                      </li>
-                    </ul>
                   </div>
                 </div>
               </details>
@@ -479,8 +486,7 @@ onMounted(async () => {
               <details
                 v-if="
                   item.ai_analysis?.what_it_does ||
-                  item.ai_analysis?.best_for ||
-                  analysisList(item.ai_analysis?.similar_projects).length
+                  item.ai_analysis?.best_for
                 "
                 class="ranking-analysis"
               >
@@ -493,17 +499,6 @@ onMounted(async () => {
                   <div v-if="item.ai_analysis?.best_for" class="analysis-row">
                     <span>適合誰</span>
                     <p>{{ item.ai_analysis.best_for }}</p>
-                  </div>
-                  <div v-if="analysisList(item.ai_analysis?.similar_projects).length" class="analysis-row">
-                    <span>類似專案</span>
-                    <ul>
-                      <li
-                        v-for="project in analysisList(item.ai_analysis.similar_projects)"
-                        :key="project"
-                      >
-                        {{ project }}
-                      </li>
-                    </ul>
                   </div>
                 </div>
               </details>
@@ -522,19 +517,8 @@ onMounted(async () => {
           v-model="filters.query"
           class="search-input"
           type="search"
-          placeholder="搜尋文章、來源或實體"
+          placeholder="搜尋文章或來源"
         />
-
-        <div class="filter-section">
-          <p>熱門實體</p>
-          <div v-if="topEntities.length" class="entity-list">
-            <span v-for="entity in topEntities" :key="entity.id" class="entity-pill">
-              {{ entity.canonical_name }}
-              <small>{{ entityTypeLabel(entity.entity_type) }} / {{ entity.mention_count }}</small>
-            </span>
-          </div>
-          <p v-else class="muted-note">尚無實體資料。</p>
-        </div>
 
         <div class="filter-section">
           <p>分類</p>
@@ -565,7 +549,18 @@ onMounted(async () => {
             <p class="eyebrow">Inbox</p>
             <h2>文章列表</h2>
           </div>
-          <span>{{ articles.length }} ?</span>
+          <span>{{ selectedDate || "最新日期" }} / {{ articles.length }} 篇</span>
+        </div>
+
+        <div v-if="articleDates.length" class="date-pager" aria-label="日期分頁">
+          <button type="button" :disabled="!olderDate" @click="showOlderDate">前一天</button>
+          <select v-model="selectedDate" aria-label="選擇文章日期">
+            <option v-for="item in articleDates" :key="item.date" :value="item.date">
+              {{ item.date }} / {{ item.count }} 篇
+            </option>
+          </select>
+          <button type="button" :disabled="!newerDate" @click="showNewerDate">後一天</button>
+          <span>本日 {{ selectedDateCount }} 篇</span>
         </div>
 
         <p v-if="error" class="notice">{{ error }}</p>
@@ -587,11 +582,6 @@ onMounted(async () => {
             </div>
             <h3>{{ article.title }}</h3>
             <p>{{ plainPreview(article.preview) }}</p>
-            <div v-if="article.entities?.length" class="entity-row">
-              <span v-for="entity in article.entities.slice(0, 3)" :key="entity.id">
-                {{ entity.canonical_name }}
-              </span>
-            </div>
             <div class="card-footer">
               <span>{{ article.category }}</span>
               <span>{{ article.published || article.created_at }}</span>
@@ -624,16 +614,6 @@ onMounted(async () => {
                 :key="component.key"
               >
                 {{ component.label }} <strong>{{ component.value }}</strong>
-              </span>
-            </div>
-          </section>
-
-          <section v-if="selectedArticle.entities?.length" class="detail-entities" aria-label="文章實體">
-            <h3>相關實體</h3>
-            <div class="entity-list">
-              <span v-for="entity in selectedArticle.entities" :key="entity.id" class="entity-pill">
-                {{ entity.canonical_name }}
-                <small>{{ entityTypeLabel(entity.entity_type) }}</small>
               </span>
             </div>
           </section>

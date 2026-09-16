@@ -336,15 +336,13 @@ def advise_project(user_query):
     research_results = openalex_search(research_queries) + arxiv_search(research_queries)
 
     web_result = {"summary": "", "sources": []}
-    enough_results = len(github_results) + len(hf_results) + len(research_results) >= 5
-    if strategy["should_use_exact_search_first"] or not enough_results:
-        try:
-            web_result = web_research(query)
-        except Exception as error:
-            web_result = {
-                "summary": f"Web search failed: {error}",
-                "sources": [],
-            }
+    try:
+        web_result = web_research(query)
+    except Exception as error:
+        web_result = {
+            "summary": f"Web search failed: {error}",
+            "sources": [],
+        }
 
     advice = summarize_advice(
         query,

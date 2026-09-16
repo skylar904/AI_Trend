@@ -2,6 +2,7 @@ import sys
 from datetime import datetime, timedelta
 
 from database import connect_db, db_label, init_db
+from topic_rankings import get_topic_rankings
 
 
 def safe_text(value):
@@ -66,37 +67,8 @@ def main():
             """,
         )
 
-        top_entities = fetch_all(
-            cursor,
-            """
-            SELECT canonical_name, entity_type, mention_count, trend_score, last_seen_at
-            FROM entities
-            ORDER BY trend_score DESC, mention_count DESC, canonical_name
-            LIMIT 10
-            """,
-        )
-
-        weekly_topics = fetch_all(
-            cursor,
-            """
-            SELECT COALESCE(ai_category, category, '未分類') AS name,
-                   COUNT(id) AS article_count,
-                   COUNT(DISTINCT source) AS source_count,
-                   ROUND(
-                       COALESCE(SUM(trend_score), 0)
-                       + COUNT(id) * 8
-                       + COUNT(DISTINCT source) * 12,
-                       2
-                   ) AS discussion_score,
-                   GROUP_CONCAT(DISTINCT source) AS sources
-            FROM articles
-            WHERE created_at >= ?
-            GROUP BY COALESCE(ai_category, category, '未分類')
-            ORDER BY discussion_score DESC, article_count DESC, name
-            LIMIT 5
-            """,
-            (since,),
-        )
+    recent_focus_topics = get_topic_rankings(scope="all", limit=5)
+    today_topics = get_topic_rankings(scope="today", limit=5)
 
     print(f"資料庫：{db_label()}")
     print(f"文章總數：{total}")
@@ -136,24 +108,24 @@ def main():
     else:
         print("- 尚無資料")
 
-    print("\n熱門實體 Top 10：")
-    if top_entities:
-        for index, row in enumerate(top_entities, start=1):
+    print("\n近期焦點 Top 5：")
+    if recent_focus_topics:
+        for index, row in enumerate(recent_focus_topics, start=1):
             print(
-                f"{index}. [{row['trend_score']}] {safe_text(row['canonical_name'])} "
-                f"({safe_text(row['entity_type'])} / 提及 {row['mention_count']} / "
-                f"最新 {row['last_seen_at']})"
+                f"{index}. [{row['topic_score']}] {safe_text(row['term'])} "
+                f"(提及 {row['mention_count']} / 文章 {row['article_count']} / "
+                f"來源 {row['source_count']})"
             )
     else:
         print("- 尚無資料")
 
-    print("\n本週討論度 Top 5：")
-    if weekly_topics:
-        for index, row in enumerate(weekly_topics, start=1):
+    print("\n本日話題 Top 5：")
+    if today_topics:
+        for index, row in enumerate(today_topics, start=1):
             print(
-                f"{index}. [{row['discussion_score']}] {safe_text(row['name'])} "
-                f"(文章 {row['article_count']} / 來源 {row['source_count']} / "
-                f"{safe_text(row['sources'])})"
+                f"{index}. [{row['topic_score']}] {safe_text(row['term'])} "
+                f"(提及 {row['mention_count']} / 文章 {row['article_count']} / "
+                f"來源 {row['source_count']})"
             )
     else:
         print("- 尚無資料")

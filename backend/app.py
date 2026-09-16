@@ -1,21 +1,16 @@
 import json
-from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 
-from database import connect_db, table_exists
+from database import connect_db, init_db, table_exists
 from project_advisor import advise_project
+from topic_rankings import get_topic_rankings
 
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-PUBLIC_DIR = BASE_DIR / "public"
-INDEX_PATH = PUBLIC_DIR / "index.html"
 
 app = FastAPI(title="AI Trend API")
+init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,36 +37,10 @@ def parse_json(value, fallback=None):
         return fallback
 
 
-def get_article_entities(conn, article_ids):
-    if not article_ids or not table_exists(conn, "entities"):
-        return {article_id: [] for article_id in article_ids}
-
-    placeholders = ",".join(["?"] * len(article_ids))
-    rows = conn.execute(
-        f"""
-        SELECT ae.article_id, e.id, e.canonical_name, e.entity_type,
-               ae.confidence, ae.evidence
-        FROM article_entities ae
-        JOIN entities e ON e.id = ae.entity_id
-        WHERE ae.article_id IN ({placeholders})
-        ORDER BY ae.confidence DESC, e.canonical_name
-        """,
-        article_ids,
-    ).fetchall()
-
-    grouped = {article_id: [] for article_id in article_ids}
-    for row in rows:
-        grouped[row["article_id"]].append(row_to_dict(row))
-    return grouped
-
-
 def attach_article_metadata(conn, articles):
-    article_ids = [article["id"] for article in articles]
-    entity_map = get_article_entities(conn, article_ids)
-
     for article in articles:
-        article["entities"] = entity_map.get(article["id"], [])
         article["trend_components"] = parse_json(article.get("trend_components"), {})
+        article["trend_components"].pop("entity", None)
 
     return articles
 
@@ -104,6 +73,32 @@ def get_platform_items(platform, limit):
     return items
 
 
+def article_date_expression():
+    return "substr(created_at, 1, 10)"
+
+
+def append_article_filters(where, values, source=None, category=None, q=None):
+    if source:
+        where.append("source = ?")
+        values.append(source)
+
+    if category:
+        where.append("category = ?")
+        values.append(category)
+
+    if q:
+        where.append("(title LIKE ? OR summary LIKE ? OR ai_summary LIKE ?)")
+        values.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+
+
+def latest_article_date(conn, where, values):
+    sql = f"SELECT MAX({article_date_expression()}) AS article_date FROM articles"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    row = conn.execute(sql, values).fetchone()
+    return row["article_date"] if row and row["article_date"] else ""
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -134,39 +129,52 @@ def get_articles(
     source: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
+    date: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
 ):
     where = []
     values = []
 
-    if source:
-        where.append("source = ?")
-        values.append(source)
-
-    if category:
-        where.append("category = ?")
-        values.append(category)
-
-    if q:
-        where.append("(title LIKE ? OR summary LIKE ? OR ai_summary LIKE ?)")
-        values.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
-
-    sql = """
-        SELECT id, title, link, source, category, published, created_at,
-               relevance_score, importance_score, trend_score,
-               trend_reason, trend_components,
-               substr(COALESCE(ai_summary, summary, ''), 1, 280) AS preview
-        FROM articles
-    """
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY created_at DESC, id DESC"
-
     with connect_db() as conn:
+        append_article_filters(where, values, source, category, q)
+        selected_date = date or latest_article_date(conn, where, values)
+        if not selected_date:
+            return []
+
+        where.append(f"{article_date_expression()} = ?")
+        values.append(selected_date)
+
+        sql = """
+            SELECT id, title, link, source, category, published, created_at,
+                   relevance_score, importance_score, trend_score,
+                   trend_reason, trend_components,
+                   substr(COALESCE(ai_summary, summary, ''), 1, 280) AS preview
+            FROM articles
+        """
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC, id DESC"
+
         rows = conn.execute(sql, values).fetchall()
         articles = [row_to_dict(row) for row in rows]
         articles = attach_article_metadata(conn, articles)
 
     return articles
+
+
+@app.get("/api/articles/dates")
+def get_article_dates():
+    with connect_db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {article_date_expression()} AS date, COUNT(*) AS count
+            FROM articles
+            WHERE created_at IS NOT NULL AND created_at != ''
+            GROUP BY {article_date_expression()}
+            ORDER BY date DESC
+            """
+        ).fetchall()
+
+    return [row_to_dict(row) for row in rows if row["date"]]
 
 
 @app.get("/api/articles/{article_id}")
@@ -192,66 +200,6 @@ def get_article(article_id: int):
     return article
 
 
-@app.get("/api/entities")
-def get_entities():
-    with connect_db() as conn:
-        if not table_exists(conn, "entities"):
-            return []
-        rows = conn.execute(
-            """
-            SELECT id, canonical_name, entity_type, aliases, mention_count,
-                   trend_score, first_seen_at, last_seen_at
-            FROM entities
-            ORDER BY trend_score DESC, mention_count DESC, canonical_name
-            LIMIT 50
-            """
-        ).fetchall()
-
-    entities = []
-    for row in rows:
-        entity = row_to_dict(row)
-        entity["aliases"] = parse_json(entity.get("aliases"), [])
-        entities.append(entity)
-    return entities
-
-
-@app.get("/api/entities/{entity_id}")
-def get_entity(entity_id: int):
-    with connect_db() as conn:
-        if not table_exists(conn, "entities"):
-            raise HTTPException(status_code=404, detail="Entity not found")
-
-        entity_row = conn.execute(
-            """
-            SELECT id, canonical_name, entity_type, aliases, mention_count,
-                   trend_score, first_seen_at, last_seen_at
-            FROM entities
-            WHERE id = ?
-            """,
-            (entity_id,),
-        ).fetchone()
-        if entity_row is None:
-            raise HTTPException(status_code=404, detail="Entity not found")
-
-        article_rows = conn.execute(
-            """
-            SELECT a.id, a.title, a.link, a.source, a.category, a.published,
-                   a.created_at, a.trend_score, ae.confidence, ae.evidence
-            FROM article_entities ae
-            JOIN articles a ON a.id = ae.article_id
-            WHERE ae.entity_id = ?
-            ORDER BY a.trend_score DESC, a.created_at DESC
-            LIMIT 20
-            """,
-            (entity_id,),
-        ).fetchall()
-
-    entity = row_to_dict(entity_row)
-    entity["aliases"] = parse_json(entity.get("aliases"), [])
-    entity["articles"] = [row_to_dict(row) for row in article_rows]
-    return entity
-
-
 @app.get("/api/trends/top")
 def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
     with connect_db() as conn:
@@ -275,100 +223,17 @@ def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
 
 @app.get("/api/dashboard/weekly-topics")
 def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
-    since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    with connect_db() as conn:
-        has_entities = table_exists(conn, "entities") and table_exists(conn, "article_entities")
-
-        if has_entities:
-            rows = conn.execute(
-                """
-                SELECT e.id, e.canonical_name AS name, e.entity_type AS topic_type,
-                       COUNT(DISTINCT a.id) AS article_count,
-                       COUNT(DISTINCT a.source) AS source_count,
-                       ROUND(
-                           COALESCE(SUM(a.trend_score), 0)
-                           + COUNT(DISTINCT a.id) * 8
-                           + COUNT(DISTINCT a.source) * 12,
-                           2
-                       ) AS discussion_score,
-                       GROUP_CONCAT(DISTINCT a.source) AS sources
-                FROM entities e
-                JOIN article_entities ae ON ae.entity_id = e.id
-                JOIN articles a ON a.id = ae.article_id
-                WHERE a.created_at >= ?
-                GROUP BY e.id, e.canonical_name, e.entity_type
-                ORDER BY discussion_score DESC, article_count DESC, e.canonical_name
-                LIMIT ?
-                """,
-                (since, limit),
-            ).fetchall()
-            topics = [row_to_dict(row) for row in rows]
-            if topics:
-                max_score = max(float(topic["discussion_score"] or 0) for topic in topics) or 1
-                for topic in topics:
-                    topic["sources"] = [
-                        source for source in str(topic.get("sources") or "").split(",") if source
-                    ]
-                    topic["share"] = round(float(topic["discussion_score"] or 0) / max_score * 100, 2)
-                return topics
-
-        rows = conn.execute(
-            """
-            SELECT COALESCE(ai_category, category, '未分類') AS name,
-                   'category' AS topic_type,
-                   COUNT(id) AS article_count,
-                   COUNT(DISTINCT source) AS source_count,
-                   ROUND(
-                       COALESCE(SUM(trend_score), 0)
-                       + COUNT(id) * 8
-                       + COUNT(DISTINCT source) * 12,
-                       2
-                   ) AS discussion_score,
-                   GROUP_CONCAT(DISTINCT source) AS sources
-            FROM articles
-            WHERE created_at >= ?
-            GROUP BY COALESCE(ai_category, category, '未分類')
-            ORDER BY discussion_score DESC, article_count DESC, name
-            LIMIT ?
-            """,
-            (since, limit),
-        ).fetchall()
-
-    topics = [row_to_dict(row) for row in rows]
-    max_score = max([float(topic["discussion_score"] or 0) for topic in topics] or [1])
-    for topic in topics:
-        topic["sources"] = [
-            source for source in str(topic.get("sources") or "").split(",") if source
-        ]
-        topic["share"] = round(float(topic["discussion_score"] or 0) / max_score * 100, 2)
-    return topics
+    return get_topic_rankings(scope="recent", limit=limit, days=7)
 
 
-@app.get("/api/dashboard/weekly-emerging-topics")
-def get_weekly_emerging_topics(limit: Annotated[int, Query(ge=1, le=5)] = 5):
-    with connect_db() as conn:
-        if not table_exists(conn, "weekly_emerging_topics"):
-            return []
-
-        latest_week = conn.execute(
-            "SELECT MAX(week_start) AS week_start FROM weekly_emerging_topics"
-        ).fetchone()
-        if not latest_week or not latest_week["week_start"]:
-            return []
-
-        rows = conn.execute(
-            """
-            SELECT id, week_start, week_end, term, mention_count, source_count,
-                   article_count, trend_score_sum, weekly_signal_score
-            FROM weekly_emerging_topics
-            WHERE week_start = ?
-            ORDER BY weekly_signal_score DESC, trend_score_sum DESC
-            LIMIT ?
-            """,
-            (latest_week["week_start"], limit),
-        ).fetchall()
-
-    return [row_to_dict(row) for row in rows]
+@app.get("/api/dashboard/topic-rankings")
+def get_dashboard_topic_rankings(
+    scope: Annotated[str, Query()] = "all",
+    limit: Annotated[int, Query(ge=1, le=10)] = 5,
+):
+    if scope not in {"all", "today", "recent"}:
+        raise HTTPException(status_code=400, detail="scope must be all, today, or recent")
+    return get_topic_rankings(scope=scope, limit=limit, days=7)
 
 
 @app.get("/api/platform/github/top")
@@ -387,25 +252,3 @@ def get_project_advice(q: Annotated[str, Query(min_length=2, max_length=300)]):
         return advise_project(q)
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
-
-
-@app.get("/", include_in_schema=False)
-def serve_index():
-    if INDEX_PATH.is_file():
-        return FileResponse(INDEX_PATH)
-    raise HTTPException(status_code=404, detail="Frontend build not found")
-
-
-@app.get("/{path:path}", include_in_schema=False)
-def serve_spa(path: str):
-    if path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API route not found")
-
-    static_file = PUBLIC_DIR / path
-    if static_file.is_file():
-        return FileResponse(static_file)
-
-    if INDEX_PATH.is_file():
-        return FileResponse(INDEX_PATH)
-
-    raise HTTPException(status_code=404, detail="Frontend build not found")

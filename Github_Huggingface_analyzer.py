@@ -13,7 +13,6 @@ def fallback_platform_analysis(item, error=None):
     analysis = {
         "what_it_does": description,
         "best_for": "Readers who want a quick overview of this repository or model.",
-        "similar_projects": [],
         "analysis_note": note,
     }
 
@@ -59,15 +58,12 @@ README or model card excerpt:
 Required JSON schema:
 {{
   "what_it_does": "1 to 2 short sentences explaining what this project/model does.",
-  "best_for": "1 short sentence explaining who should care about it.",
-  "similar_projects": ["similar project or model 1", "similar project or model 2", "similar project or model 3"]
+  "best_for": "1 short sentence explaining who should care about it."
 }}
 
 Rules:
-- If similar projects are not obvious from the README/model card, infer reasonable well-known alternatives from the project purpose.
 - Do not include installation steps.
 - Do not explain why it is popular.
-- Do not output more than 3 similar projects.
 """
 
     try:
@@ -82,11 +78,6 @@ Rules:
     analysis = {
         "what_it_does": str(data.get("what_it_does") or "").strip(),
         "best_for": str(data.get("best_for") or "").strip(),
-        "similar_projects": [
-            str(value).strip()
-            for value in data.get("similar_projects", [])
-            if str(value).strip()
-        ][:3],
     }
 
     if not analysis["what_it_does"]:

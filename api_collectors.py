@@ -10,7 +10,6 @@ from xml.etree import ElementTree
 
 from api_sources import API_RSS_REPLACEMENTS, API_SOURCES
 from cleaning import clean_article, dedupe_articles
-from database import get_active_generated_queries
 from trend_config import DEFAULT_SOURCE_WEIGHT
 
 
@@ -54,10 +53,6 @@ def has_required_env(source):
     return all(os.getenv(name) for name in source.get("requires_env", []))
 
 
-def generated_query_texts(platform):
-    return [item["query"] for item in get_active_generated_queries(platform)]
-
-
 def base_article(source, title, link, summary, published=""):
     return clean_article(
         {
@@ -80,7 +75,7 @@ def collect_github_search(source):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    queries = source["queries"] + generated_query_texts("github")
+    queries = source["queries"]
     per_query = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
     seen = set()
@@ -127,7 +122,7 @@ def collect_huggingface_models(source):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    searches = source["searches"] + generated_query_texts("huggingface")
+    searches = source["searches"]
     per_search = max(1, source["max_entries"] // max(len(searches), 1))
     articles = []
     seen = set()
@@ -195,7 +190,7 @@ def collect_wordpress_posts(source):
 
 
 def collect_arxiv(source):
-    queries = [source["query"]] + generated_query_texts("arxiv")
+    queries = [source["query"]]
     max_results = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
     for query in queries:
@@ -235,17 +230,22 @@ def collect_semantic_scholar(source):
     if semantic_scholar_key:
         headers["x-api-key"] = semantic_scholar_key
 
-    queries = [source["query"]] + generated_query_texts("semantic_scholar")
+    queries = [source["query"]]
     per_query = max(1, source["max_entries"] // max(len(queries), 1))
+    venues = source.get("venues", [])
     articles = []
     for query in queries:
+        params = {
+            "query": query,
+            "limit": per_query,
+            "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors",
+        }
+        if venues:
+            params["venue"] = ",".join(venues)
+
         data = request_json(
             "https://api.semanticscholar.org/graph/v1/paper/search",
-            params={
-                "query": query,
-                "limit": per_query,
-                "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors",
-            },
+            params=params,
             headers=headers,
         )
         for paper in data.get("data", []):
@@ -280,7 +280,7 @@ def openalex_abstract(inverted_index):
 
 
 def collect_openalex(source):
-    queries = [source["query"]] + generated_query_texts("openalex")
+    queries = [source["query"]]
     per_query = max(1, source["max_entries"] // max(len(queries), 1))
     articles = []
     for query in queries:
@@ -408,19 +408,8 @@ def reddit_access_token():
 def collect_reddit(source):
     token = reddit_access_token()
     subreddit_path = "+".join(source.get("subreddits", []))
-    queries = generated_query_texts("reddit")
-    if queries:
-        search_query = " OR ".join(queries[:5])
-        endpoint = f"https://oauth.reddit.com/r/{subreddit_path}/search"
-        params = {
-            "q": search_query,
-            "restrict_sr": "true",
-            "sort": "new",
-            "limit": source["max_entries"],
-        }
-    else:
-        endpoint = f"https://oauth.reddit.com/r/{subreddit_path}/hot"
-        params = {"limit": source["max_entries"]}
+    endpoint = f"https://oauth.reddit.com/r/{subreddit_path}/hot"
+    params = {"limit": source["max_entries"]}
 
     data = request_json(endpoint, params=params, headers={"Authorization": f"Bearer {token}"})
     articles = []

@@ -6,57 +6,23 @@ from datetime import datetime
 from api_collectors import collect_api_candidates, rss_replacements_for
 from cleaning import clean_article, dedupe_articles, is_probably_ai_related
 from rss_sources import RSS_FEEDS
-from report import generate_markdown_report, save_report
 from database import (
-    get_active_generated_queries,
     init_db,
     is_article_exists_by_identity,
-    link_article_entity,
+    save_pending_article,
     save_article,
     save_platform_items,
-    upsert_entity,
 )
 from Github_Huggingface_analyzer import analyze_platform_item
 from Github_Huggingface_collector import collect_platform_top
-from summarizer import analyze_article
+from summarizer import OpenAIAnalysisRetryableError, analyze_article
 from trend_config import (
     DEFAULT_SOURCE_WEIGHT,
     MAX_DAILY_ARTICLES,
     MIN_RELEVANCE_SCORE,
     TREND_SCORE_WEIGHTS,
 )
-from weekly_emerging_topics import update_weekly_emerging_topics
-
-
-def load_query_terms():
-    terms = set()
-    for query in get_active_generated_queries():
-        text = str(query.get("query") or "").replace('"', " ").strip()
-        if text:
-            terms.add(text.lower())
-        term = str(query.get("term") or "").strip()
-        if term:
-            terms.add(term.lower())
-    return terms
-
-
-def apply_rss_query_boost(article, query_terms):
-    if not query_terms:
-        return article
-
-    text = " ".join(
-        [
-            article.get("title", ""),
-            article.get("summary", ""),
-            article.get("source", ""),
-            article.get("category", ""),
-        ]
-    ).lower()
-    hits = [term for term in query_terms if term and term in text]
-    if hits:
-        article["source_weight"] = float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT)) + 0.35
-        article["generated_query_hits"] = hits[:5]
-    return article
+from topic_rankings import update_topic_rankings
 
 
 def fetch_feed(feed):
@@ -85,14 +51,11 @@ def calculate_trend_components(article, analysis):
     source_weight = float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT))
     relevance_score = int(analysis.get("relevance_score", 0))
     importance_score = int(analysis.get("importance_score", 0))
-    entities = analysis.get("entities", [])
-    entity_count = min(len(entities), 4)
 
     components = {
         "relevance": round(relevance_score * TREND_SCORE_WEIGHTS["relevance"], 2),
         "importance": round(importance_score * TREND_SCORE_WEIGHTS["importance"], 2),
         "source": round(source_weight * TREND_SCORE_WEIGHTS["source"], 2),
-        "entity": round(entity_count * TREND_SCORE_WEIGHTS["entity"], 2),
         "recency": TREND_SCORE_WEIGHTS["recency"],
     }
     return components
@@ -103,23 +66,17 @@ def calculate_trend_score(components):
 
 
 def build_trend_reason(article, analysis, components):
-    entities = analysis.get("entities", [])
-    entity_names = [entity["canonical_name"] for entity in entities[:3]]
     reasons = [
         f"AI 相關性 {analysis.get('relevance_score', 0)} 分",
         f"重要性 {analysis.get('importance_score', 0)} 分",
         f"來源權重貢獻 {components['source']} 分",
+        f"近期性貢獻 {components['recency']} 分",
     ]
-    if entity_names:
-        reasons.append(f"提到 {'、'.join(entity_names)} 等實體")
-    else:
-        reasons.append("未抽出明確工具/模型實體")
     return "；".join(reasons) + "。"
 
 
 def collect_candidates():
     candidates = []
-    query_terms = load_query_terms()
     api_candidates, successful_api_sources = collect_api_candidates()
     candidates.extend(api_candidates)
     rss_replacements = rss_replacements_for(successful_api_sources)
@@ -131,20 +88,14 @@ def collect_candidates():
 
         print(f"正在巡邏來源：{feed['name']}")
         try:
-            rss_articles = [
-                apply_rss_query_boost(article, query_terms)
-                for article in fetch_feed(feed)
-            ]
+            rss_articles = fetch_feed(feed)
             candidates.extend(rss_articles)
         except Exception as error:
             print(f"來源讀取失敗，略過 {feed['name']}：{error}")
 
     deduped = dedupe_articles(candidates)
     deduped.sort(
-        key=lambda article: (
-            bool(article.get("generated_query_hits")),
-            float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT)),
-        ),
+        key=lambda article: float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT)),
         reverse=True,
     )
     return deduped
@@ -156,12 +107,12 @@ def parse_args():
         "--limit",
         type=int,
         default=MAX_DAILY_ARTICLES,
-        help="Maximum number of new articles to analyze and save.",
+        help="Optional global cap for new articles to analyze and save. 0 means no global cap.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Analyze candidates without writing to articles.db or reports/.",
+        help="Analyze candidates without writing to the database.",
     )
     parser.add_argument(
         "--skip-platform",
@@ -172,11 +123,6 @@ def parse_args():
         "--platform-only",
         action="store_true",
         help="Only update GitHub and Hugging Face platform rankings, then exit.",
-    )
-    parser.add_argument(
-        "--weekly-topics-only",
-        action="store_true",
-        help="Only update weekly emerging topics and generated search queries, then exit.",
     )
     return parser.parse_args()
 
@@ -205,11 +151,6 @@ def main():
     args = parse_args()
     init_db()
 
-    if args.weekly_topics_only:
-        topics = update_weekly_emerging_topics(dry_run=args.dry_run)
-        print(f"本週新興議題 Top {len(topics)} 已更新。")
-        return
-
     if not args.skip_platform:
         update_platform_rankings(args.dry_run)
         if args.platform_only:
@@ -217,14 +158,18 @@ def main():
 
     candidates = collect_candidates()
     print(f"\n候選文章數量：{len(candidates)}")
-    print(f"本次收錄上限：{args.limit}")
+    if args.limit > 0:
+        print(f"本次全站收錄上限：{args.limit}")
+    else:
+        print("本次不使用全站收錄上限，改由各來源 max_entries 控制。")
     if args.dry_run:
-        print("Dry run 模式：只分析，不寫入資料庫與報告。")
+        print("Dry run 模式：只分析，不寫入資料庫。")
 
     all_new_articles = []
+    pending_count = 0
 
     for article in candidates:
-        if len(all_new_articles) >= args.limit:
+        if args.limit > 0 and len(all_new_articles) >= args.limit:
             break
 
         link = article["link"]
@@ -242,7 +187,14 @@ def main():
             continue
 
         print(f"\n分析新文章：{article['title']}")
-        analysis = analyze_article(article)
+        try:
+            analysis = analyze_article(article)
+        except OpenAIAnalysisRetryableError as error:
+            print(f"OpenAI 分析暫時失敗，加入待補：{article['title']} / {error}")
+            pending_count += 1
+            if not args.dry_run:
+                save_pending_article(article, error)
+            continue
 
         if (
             not analysis.get("should_include")
@@ -267,42 +219,43 @@ def main():
         if not args.dry_run:
             article_id = save_article(article)
             if article_id:
-                for entity in analysis.get("entities", []):
-                    entity_id = upsert_entity(entity, article["trend_score"])
-                    link_article_entity(
-                        article_id,
-                        entity_id,
-                        entity.get("confidence", 0),
-                        entity.get("evidence", ""),
-                    )
+                article["id"] = article_id
+            else:
+                print(f"資料庫已存在或寫入失敗，略過話題統計：{article['title']}")
+                continue
 
         all_new_articles.append(article)
-        entity_names = [
-            entity["canonical_name"] for entity in analysis.get("entities", [])
-        ]
         print(
             "已收錄："
             f"{article['title']} "
             f"(相關 {article['relevance_score']} / 重要 {article['importance_score']} / 趨勢 {article['trend_score']})"
         )
-        if entity_names:
-            print(f"關聯實體：{'、'.join(entity_names)}")
 
     if not all_new_articles:
+        if pending_count:
+            print(f"\n今天沒有成功上架新文章，但有 {pending_count} 篇已加入待補。")
+            print("補好 OpenAI token/quota 後，執行：.venv/bin/python retry_pending_articles.py")
+            return
         print("\n今天沒有新的文章。")
         return
 
-    markdown_text = generate_markdown_report(all_new_articles)
-
     print(f"\n新文章數量：{len(all_new_articles)}")
+    if pending_count:
+        print(f"另有 {pending_count} 篇因 OpenAI 暫時失敗加入待補。")
     if args.dry_run:
-        print("Dry run 完成，未產生報告檔。")
-    else:
-        file_path = save_report(markdown_text)
-        print(f"報告已產生：{file_path}")
+        print("Dry run 完成，未寫入資料庫。")
 
-    topics = update_weekly_emerging_topics(dry_run=args.dry_run)
-    print(f"本週新興議題 Top {len(topics)} 已更新。")
+    topic_date = datetime.now().strftime("%Y-%m-%d")
+    try:
+        topics = update_topic_rankings(all_new_articles, topic_date=topic_date, dry_run=args.dry_run)
+    except Exception as error:
+        print(f"本日話題更新失敗，但文章已保留在資料庫：{error}")
+        print(
+            "補好 OpenAI token/quota 後，執行："
+            f".venv/bin/python rebuild_daily_topics.py --date {topic_date}"
+        )
+        raise
+    print(f"本日話題 Top {len(topics)} 已更新，近期焦點已累積重建。")
 
 
 if __name__ == "__main__":

@@ -1,38 +1,25 @@
 import os
 
 
-MAX_DAILY_ARTICLES = int(os.getenv("MAX_DAILY_ARTICLES", "30"))
-MAX_ENTRIES_PER_SOURCE = int(os.getenv("MAX_ENTRIES_PER_SOURCE", "10"))
+MAX_DAILY_ARTICLES = int(os.getenv("MAX_DAILY_ARTICLES", "0"))
+MAX_ENTRIES_PER_SOURCE = int(os.getenv("MAX_ENTRIES_PER_SOURCE", "30"))
 MIN_RELEVANCE_SCORE = int(os.getenv("MIN_RELEVANCE_SCORE", "60"))
 
 CATEGORIES = [
-    "AI工具",
-    "模型發布",
-    "研究論文",
+    "AI 工具與應用",
+    "AI Agent 與開發",
+    "AI 模型與研究",
+    "AI 產業與治理",
     "開源專案",
-    "產業動態",
-    "投資併購",
-    "政策法規",
-    "AI基礎設施",
-    "AI Agent / Agentic Workflow",
-    "教學資源",
+    "研究論文",
+    "產業新聞",
     "其他AI趨勢",
-]
-
-ENTITY_TYPES = [
-    "tool",
-    "company",
-    "model",
-    "framework",
-    "product",
-    "other",
 ]
 
 TREND_SCORE_WEIGHTS = {
     "relevance": 0.35,
     "importance": 0.35,
     "source": 10,
-    "entity": 4,
     "recency": 5,
 }
 
