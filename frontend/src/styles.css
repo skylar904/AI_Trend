@@ -73,10 +73,10 @@ summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 24px;
-  align-items: end;
-  min-height: 250px;
+  align-items: center;
+  min-height: 210px;
   margin-bottom: 18px;
-  padding: 38px;
+  padding: 30px 38px;
   border: 1px solid rgba(203, 213, 225, 0.74);
   border-radius: 8px;
   background:
@@ -235,7 +235,7 @@ summary {
 
 .advisor-form input,
 .search-input,
-.date-pager select {
+.filter-select {
   width: 100%;
   min-height: 46px;
   min-width: 0;
@@ -248,13 +248,12 @@ summary {
 
 .advisor-form input:focus,
 .search-input:focus,
-.date-pager select:focus {
+.filter-select:focus {
   border-color: var(--accent);
   outline: 4px solid rgba(15, 143, 124, 0.13);
 }
 
-.advisor-form button,
-.date-pager button {
+.advisor-form button {
   min-height: 46px;
   padding: 10px 18px;
   border: 0;
@@ -265,14 +264,12 @@ summary {
   box-shadow: 0 10px 22px rgba(15, 143, 124, 0.22);
 }
 
-.advisor-form button:hover:not(:disabled),
-.date-pager button:hover:not(:disabled) {
+.advisor-form button:hover:not(:disabled) {
   background: var(--accent-strong);
   transform: translateY(-1px);
 }
 
-.advisor-form button:disabled,
-.date-pager button:disabled {
+.advisor-form button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
   box-shadow: none;
@@ -642,13 +639,29 @@ summary {
   display: grid;
   grid-template-columns: 250px minmax(360px, 0.95fr) minmax(440px, 1.35fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.filters-panel,
+.feed-panel,
+.detail-panel {
+  height: calc(100vh - 48px);
+  min-height: 680px;
+  max-height: 960px;
+  overflow: hidden;
 }
 
 .filters-panel {
   position: sticky;
   top: 16px;
   padding: 18px;
+  overflow: auto;
+}
+
+.feed-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .search-label,
@@ -662,6 +675,45 @@ summary {
 
 .filter-section {
   margin-top: 22px;
+}
+
+.date-navigation {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.date-navigation button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: #ffffff;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.date-navigation button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.date-navigation button:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  opacity: 0.55;
+}
+
+.date-navigation span {
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
 }
 
 .muted-note {
@@ -703,36 +755,9 @@ summary {
   background: var(--rose-soft);
 }
 
-.date-pager {
-  display: grid;
-  grid-template-columns: auto minmax(160px, 1fr) auto auto;
-  gap: 10px;
-  align-items: center;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-subtle);
-}
-
-.date-pager button {
-  min-height: 40px;
-  padding: 8px 13px;
-  box-shadow: none;
-}
-
-.date-pager select {
-  min-height: 40px;
-}
-
-.date-pager span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
 .article-list {
-  max-height: calc(100vh - 295px);
-  min-height: 560px;
+  min-height: 0;
+  flex: 1;
   overflow: auto;
 }
 
@@ -806,18 +831,19 @@ summary {
 }
 
 .detail-panel {
-  min-height: 640px;
+  min-width: 0;
 }
 
 .empty-detail {
   display: grid;
-  min-height: 640px;
+  height: 100%;
+  min-height: 0;
   place-items: center;
   color: var(--muted);
 }
 
 .article-detail {
-  max-height: calc(100vh - 196px);
+  height: 100%;
   overflow: auto;
   padding: 28px 30px 36px;
 }
@@ -920,6 +946,14 @@ summary {
 
   .detail-panel {
     grid-column: 1 / -1;
+    height: auto;
+    min-height: 640px;
+    max-height: none;
+  }
+
+  .article-detail {
+    height: auto;
+    max-height: none;
   }
 }
 
@@ -957,20 +991,24 @@ summary {
   }
 
   .emerging-item,
-  .ranking-list li,
-  .date-pager {
+  .ranking-list li {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .emerging-item > strong,
-  .ranking-metric,
-  .date-pager span {
+  .ranking-metric {
     justify-self: start;
     grid-column: 2;
   }
 
-  .filters-panel {
+  .filters-panel,
+  .feed-panel,
+  .detail-panel {
     position: static;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
   }
 
   .article-list,
@@ -979,7 +1017,12 @@ summary {
   }
 
   .article-detail {
+    height: auto;
     padding: 22px;
+  }
+
+  .empty-detail {
+    min-height: 240px;
   }
 
   .article-detail h2 {

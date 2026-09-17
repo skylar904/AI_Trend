@@ -505,6 +505,46 @@ onMounted(async () => {
           placeholder="搜尋文章或來源"
         />
 
+        <div v-if="articleDates.length" class="filter-section">
+          <p>日期</p>
+          <select v-model="selectedDate" class="filter-select" aria-label="選擇文章日期">
+            <option v-for="item in articleDates" :key="item.date" :value="item.date">
+              {{ item.date }} / {{ item.count }} 篇
+            </option>
+          </select>
+          <div class="date-navigation">
+            <button
+              type="button"
+              :disabled="!olderDate"
+              aria-label="前一天"
+              title="前一天"
+              @click="showOlderDate"
+            >
+              &lsaquo;
+            </button>
+            <span>當日收錄 {{ selectedDateCount }} 篇</span>
+            <button
+              type="button"
+              :disabled="!newerDate"
+              aria-label="後一天"
+              title="後一天"
+              @click="showNewerDate"
+            >
+              &rsaquo;
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-section">
+          <p>來源</p>
+          <select v-model="filters.source" class="filter-select" aria-label="選擇文章來源">
+            <option value="">全部來源</option>
+            <option v-for="source in stats.sources" :key="source.source" :value="source.source">
+              {{ source.source }} / {{ source.count }} 篇
+            </option>
+          </select>
+        </div>
+
         <div class="filter-section">
           <p>分類</p>
           <button
@@ -534,18 +574,7 @@ onMounted(async () => {
             <p class="eyebrow">Inbox</p>
             <h2>文章列表</h2>
           </div>
-          <span>{{ selectedDate || "最新日期" }} / {{ articles.length }} 篇</span>
-        </div>
-
-        <div v-if="articleDates.length" class="date-pager" aria-label="日期分頁">
-          <button type="button" :disabled="!olderDate" @click="showOlderDate">前一天</button>
-          <select v-model="selectedDate" aria-label="選擇文章日期">
-            <option v-for="item in articleDates" :key="item.date" :value="item.date">
-              {{ item.date }} / {{ item.count }} 篇
-            </option>
-          </select>
-          <button type="button" :disabled="!newerDate" @click="showNewerDate">後一天</button>
-          <span>本日 {{ selectedDateCount }} 篇</span>
+          <span>{{ selectedDate || "最新日期" }} · {{ articles.length }} 篇</span>
         </div>
 
         <p v-if="error" class="notice">{{ error }}</p>
