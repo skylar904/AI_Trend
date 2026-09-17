@@ -875,32 +875,15 @@ summary {
   font-size: 27px;
 }
 
+.star-rating {
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
 .trend-box p {
   margin: 0 0 14px;
   color: var(--ink);
   line-height: 1.75;
-}
-
-.component-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.component-grid span {
-  min-width: 0;
-  padding: 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-  color: var(--muted);
-}
-
-.component-grid strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink-strong);
-  font-size: 15px;
 }
 
 .summary {
@@ -1003,7 +986,4 @@ summary {
     font-size: 24px;
   }
 
-  .component-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }

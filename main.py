@@ -49,28 +49,24 @@ def fetch_feed(feed):
 
 def calculate_trend_components(article, analysis):
     source_weight = float(article.get("source_weight", DEFAULT_SOURCE_WEIGHT))
-    relevance_score = int(analysis.get("relevance_score", 0))
     importance_score = int(analysis.get("importance_score", 0))
 
     components = {
-        "relevance": round(relevance_score * TREND_SCORE_WEIGHTS["relevance"], 2),
         "importance": round(importance_score * TREND_SCORE_WEIGHTS["importance"], 2),
         "source": round(source_weight * TREND_SCORE_WEIGHTS["source"], 2),
-        "recency": TREND_SCORE_WEIGHTS["recency"],
     }
     return components
 
 
 def calculate_trend_score(components):
-    return round(sum(float(value) for value in components.values()), 2)
+    raw_score = sum(float(value) for value in components.values())
+    return round(min(100, max(0, raw_score)), 2)
 
 
 def build_trend_reason(article, analysis, components):
     reasons = [
-        f"AI 相關性 {analysis.get('relevance_score', 0)} 分",
         f"重要性 {analysis.get('importance_score', 0)} 分",
         f"來源權重貢獻 {components['source']} 分",
-        f"近期性貢獻 {components['recency']} 分",
     ]
     return "；".join(reasons) + "。"
 

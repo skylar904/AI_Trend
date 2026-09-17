@@ -86,23 +86,10 @@ function summaryBlocks(markdown) {
   return blocks;
 }
 
-function formatTrendScore(value) {
+function importanceStars(value) {
   const score = Number(value || 0);
-  return score ? score.toFixed(1) : "0";
-}
-
-function trendComponentEntries(components) {
-  const labels = {
-    relevance: "相關性",
-    importance: "重要性",
-    source: "來源權重",
-    recency: "近期性",
-  };
-  return Object.entries(components || {}).map(([key, value]) => ({
-    key,
-    label: labels[key] || key,
-    value: Number(value || 0).toFixed(1),
-  }));
+  const level = Math.max(0, Math.min(5, Math.ceil(score / 20)));
+  return "★".repeat(level) + "☆".repeat(5 - level);
 }
 
 function formatPlatformMetric(value) {
@@ -254,8 +241,7 @@ onMounted(async () => {
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">AI Trend Desk</p>
-        <h1>AI 趨勢情報台</h1>
-        <p class="hero-subtitle">從每日爬蟲、平台排行到 AI 摘要分析，集中追蹤工具、模型、研究與產業訊號。</p>
+        <h1>AI趨勢整平台</h1>
       </div>
       <div class="hero-status">
         <span>已收錄 {{ stats.total }} 篇</span>
@@ -286,7 +272,7 @@ onMounted(async () => {
       <div class="panel-heading advisor-heading">
         <div>
           <p class="eyebrow">Project Advisor</p>
-          <h2>專案顧問</h2>
+          <h2>搜尋相關專案</h2>
         </div>
         <span>GitHub / Hugging Face / Research / Web</span>
       </div>
@@ -419,7 +405,6 @@ onMounted(async () => {
               <span>{{ topic.mention_count }} 次提及</span>
               <span>{{ topic.source_count }} 個來源</span>
               <span>{{ topic.article_count }} 篇文章</span>
-              <span>趨勢分數 {{ Number(topic.trend_score_sum || 0).toFixed(1) }}</span>
             </div>
           </div>
           <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
@@ -578,7 +563,7 @@ onMounted(async () => {
           >
             <div class="card-topline">
               <span class="source">資料來源：{{ article.source }}</span>
-              <span class="score-badge">趨勢 {{ formatTrendScore(article.trend_score) }}</span>
+              <span class="score-badge">重要度 {{ importanceStars(article.trend_score) }}</span>
             </div>
             <h3>{{ article.title }}</h3>
             <p>{{ plainPreview(article.preview) }}</p>
@@ -602,20 +587,12 @@ onMounted(async () => {
           <h2>{{ selectedArticle.title }}</h2>
           <a :href="selectedArticle.link" target="_blank" rel="noreferrer">閱讀原文</a>
 
-          <section class="trend-box" aria-label="趨勢分數">
+          <section class="trend-box" aria-label="重要度">
             <div>
-              <span>趨勢分數</span>
-              <strong>{{ formatTrendScore(selectedArticle.trend_score) }}</strong>
+              <span>重要度</span>
+              <strong class="star-rating">{{ importanceStars(selectedArticle.trend_score) }}</strong>
             </div>
-            <p>{{ selectedArticle.trend_reason || "尚無趨勢分數說明" }}</p>
-            <div class="component-grid">
-              <span
-                v-for="component in trendComponentEntries(selectedArticle.trend_components)"
-                :key="component.key"
-              >
-                {{ component.label }} <strong>{{ component.value }}</strong>
-              </span>
-            </div>
+            <p>依文章重要性與來源權重評估。</p>
           </section>
 
           <div class="summary">

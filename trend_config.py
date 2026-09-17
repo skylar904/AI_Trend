@@ -17,10 +17,8 @@ CATEGORIES = [
 ]
 
 TREND_SCORE_WEIGHTS = {
-    "relevance": 0.35,
-    "importance": 0.35,
+    "importance": 0.9,
     "source": 10,
-    "recency": 5,
 }
 
 AI_KEYWORDS = [

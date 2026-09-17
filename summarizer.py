@@ -57,6 +57,28 @@ CATEGORY_PRIORITY_RULES = """
 """.strip()
 
 
+SCORE_GUIDE = """
+relevance_score 評分：
+- 90-100：核心 AI 主題。文章主體就是 AI 模型、AI 工具、AI Agent、AI 研究、AI 基礎設施或 AI 產業政策。
+- 80-89：高度 AI 相關。主要內容是 AI 應用、AI 產品功能、AI 開發工具、模型應用或 AI 工作流程。
+- 60-79：中度 AI 相關。文章明確談到 AI，但可能只是產品、產業新聞或工具更新的一部分。
+- 40-59：弱 AI 相關。只有部分段落或附帶提到 AI，不適合作為主要 AI 趨勢文章。
+- 0-39：幾乎不相關。不是 AI 主題，或只是標題/行銷字眼提到 AI。
+
+importance_score 評分：
+- 90-100：重大趨勢或重大發布，例如新模型、重要開源模型、重大政策、頂尖公司核心發布、會明顯影響 AI 生態的事件。
+- 80-89：高度值得追，例如熱門新工具、重要研究、開發者生態重大更新、明顯影響專案方向或技術選型的內容。
+- 70-79：值得注意，有實用價值、有趨勢訊號、有一定討論度，但影響範圍還不是重大。
+- 60-69：一般可看，AI 相關且有資訊量，但多半是普通更新、一般教學、單一功能或局部案例。
+- 40-59：低追蹤價值，內容偏窄、重複、普通、廣告味較重，或缺乏新資訊。
+- 0-39：不值得追，低品質、純行銷、資訊不足，或與 AI 趨勢觀察幾乎無關。
+
+should_include 判斷：
+- true：relevance_score >= 60，且不是純廣告、低品質內容或資訊不足內容。
+- false：relevance_score < 60，或主體不是 AI，或只是沾 AI 關鍵字，或內容太像 SEO/廣告/低品質摘要。
+""".strip()
+
+
 def get_client():
     global client
 
@@ -164,9 +186,12 @@ def analyze_article(article):
 
 {CATEGORY_PRIORITY_RULES}
 
+評分區間定義：
+{SCORE_GUIDE}
+
 判斷標準：
 - relevance_score：0~100，文章和 AI 科技趨勢、AI 工具、模型、研究、AI 基礎設施、AI 產業的相關程度。
-- importance_score：0~100，對學生、工程師、研究所推甄作品、AI 工具觀察的值得追蹤程度。
+- importance_score：0~100，對 AI 趨勢觀察、專案發想、工程實作、研究追蹤的值得關注程度。
 - should_include：只有 relevance_score >= 60 且不是純廣告/低品質內容才是 true。
 - category：必須從可用分類中選一個。
 - reason：用一句繁體中文說明為什麼收錄或略過。
