@@ -1,12 +1,16 @@
 import json
+import io
+import html
 import os
 import re
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pypdf import PdfReader
 
 from summarizer import MODEL, extract_json
 from web_research import web_research
@@ -15,36 +19,47 @@ from web_research import web_research
 load_dotenv()
 
 REQUEST_TIMEOUT = 25
-MAX_AGENT_ROUNDS = 6
-MAX_TOOL_RESULTS = 12
-README_LIMIT = 2400
+MAX_AGENT_ROUNDS = 10
+MAX_TOOL_RESULTS = 15
+MAX_FINAL_RESULTS = 6
+README_LIMIT = 6000
+FILE_CONTENT_LIMIT = 10000
+PAPER_CONTENT_LIMIT = 24000
 client = None
 
 
 AGENT_INSTRUCTIONS = """
-你是一個通用的技術研究與資源探索 Agent。使用者可能提出產品構想、軟體專案、遊戲、Skill、模型、資料集、論文、工具、學習方向，或任何尚未預先列舉的需求。
+你是一個技術資源研究 Agent。你的第一責任是完整保留使用者原句中的目標、資源類型、功能與限制，再依需求即時上網研究。
 
-工作原則：
-- 先理解使用者真正想完成的目標，再自行選擇適合的工具與搜尋詞。
-- 每次查詢至少使用一個搜尋工具。不要固定呼叫所有工具，只使用對目前目標有價值的工具。
-- 當某個專門工具能直接取得所需資源時，優先使用專門工具；Web Search 用於探索未知主題、近期資訊與補足脈絡。
-- 資訊不完整時不要向使用者追問；採用合理假設，並在 assumptions 中簡短說明。
-- 若有多種主要解讀，涵蓋最有幫助的方向，不要因為模糊而停止。
-- 第一次結果不足時，調整關鍵字、換來源或讀取重要 repository，再繼續搜尋。
-- 比較候選的實際用途、相容性、文件、維護狀態、授權與限制，不要只按照 stars、downloads 或 citations 排名。
-- 只能推薦工具結果中實際存在的資源。所有推薦項目必須引用有效的 source_id，不得自行創造名稱、網址、數據或 source_id。
-- 回答使用繁體中文，直接解決需求，不展示內部推理、工具呼叫流程或分類 JSON。
-- 最終輸出必須符合指定 JSON schema。沒有來源支撐的純建議可以寫在 answer 或 section summary，但不能偽裝成具體資源。
+允許的最終資源只有三類：
+1. GitHub repository 或 repository 中的 Skill、程式碼與套件。
+2. Hugging Face model 或 dataset。
+3. 真正的學術論文；不限期刊、會議、預印本或發表網站。
+
+必要規則：
+- 不得推薦課程、教學網站、產品頁、一般部落格或其他類型的資源。
+- 使用者明確說 Skill、模型、資料集、論文、專案或套件時，按字面資源類型理解。除非使用者明確說「學習、課程、教學」，否則 Skill 絕不能解讀成學習技能。
+- 使用者明確指定資源類型時，最終結果必須是該類型：Skill 只能以 GitHub Skill 為結果；模型必須是 Hugging Face model 或可直接使用的 GitHub 模型實作；資料集必須是 Hugging Face dataset 或 GitHub dataset；論文必須是真正論文。其他類型只能作為研究背景，不能替代使用者要找的東西。
+- GitHub、Hugging Face 與論文搜尋通常使用精準英文技術詞；不要只把中文原句原封不動送進英文技術平台。
+- 不向使用者追問。資訊不足時採最合理的技術方向繼續研究，但最終回答不要另外列出「採用假設」。
+- 搜尋只是找候選，不能只看標題、摘要片段、stars、downloads 或 citations 就推薦。
+- GitHub 候選必須先呼叫 inspect_github_repository；需要確認功能時，再讀取關鍵程式碼。Skill 必須實際讀到 SKILL.md 或等價的完整 Skill 定義。
+- Hugging Face 候選必須先呼叫 inspect_huggingface_resource，讀取 Card、設定與檔案清單。
+- 論文候選必須先呼叫 inspect_paper。能取得 PDF 時讀取重要頁面；只能取得摘要時必須在 evidence_basis 與 limitations 清楚標示。
+- 最終只能引用已完成 inspect 的有效 source_id，不得自行創造名稱、網址、數據或 source_id。
+- 按需求符合程度選出最相關的 3 至 6 個結果。找不到合格結果就直接說沒有找到，不得湊數。
+- answer 最多兩句。每個項目清楚說明它是什麼、怎麼運作、為什麼符合、限制與實際查閱依據。
+- 不在可見文字中輸出 source_id，不重複列資料來源，不用「如果你告訴我」或問句結尾。
+- 使用繁體中文，不展示內部分類、搜尋策略或工具流程。
 """.strip()
 
 
 FINAL_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["answer", "assumptions", "sections", "source_ids"],
+    "required": ["answer", "sections"],
     "properties": {
         "answer": {"type": "string"},
-        "assumptions": {"type": "array", "items": {"type": "string"}},
         "sections": {
             "type": "array",
             "items": {
@@ -59,19 +74,29 @@ FINAL_SCHEMA = {
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
-                            "required": ["source_id", "title", "description", "details"],
+                            "required": [
+                                "source_id",
+                                "title",
+                                "description",
+                                "how_it_works",
+                                "why_relevant",
+                                "limitations",
+                                "evidence_basis",
+                            ],
                             "properties": {
                                 "source_id": {"type": "string"},
                                 "title": {"type": "string"},
                                 "description": {"type": "string"},
-                                "details": {"type": "array", "items": {"type": "string"}},
+                                "how_it_works": {"type": "string"},
+                                "why_relevant": {"type": "string"},
+                                "limitations": {"type": "string"},
+                                "evidence_basis": {"type": "string"},
                             },
                         },
                     },
                 },
             },
         },
-        "source_ids": {"type": "array", "items": {"type": "string"}},
     },
 }
 
@@ -79,27 +104,26 @@ FINAL_SCHEMA = {
 AGENT_TOOLS = [
     {
         "type": "function",
-        "name": "search_web",
-        "description": "搜尋一般網路、官方文件、產品頁、技術文章或未知主題。適合先探索廣泛或近期資訊。",
+        "name": "discover_online",
+        "description": "即時上網發現 GitHub、Hugging Face 或論文候選。搜尋到的頁面只是候選，仍必須使用對應 inspect 工具驗證後才能推薦。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "query": {"type": "string", "description": "具體、可直接搜尋的查詢"},
-                "allowed_domains": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "可選的網域限制，例如 github.com；通常留空即可",
+                "query": {"type": "string"},
+                "source_kind": {
+                    "type": "string",
+                    "enum": ["github", "huggingface", "paper"],
                 },
             },
-            "required": ["query"],
+            "required": ["query", "source_kind"],
         },
         "strict": False,
     },
     {
         "type": "function",
         "name": "search_github",
-        "description": "搜尋可執行、可參考或可重用的 GitHub repository，並取得 README、維護狀態、授權和 Demo 等資訊。",
+        "description": "透過 GitHub API 即時搜尋 repository 候選。這一步只找候選，推薦前必須 inspect。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -113,8 +137,23 @@ AGENT_TOOLS = [
     },
     {
         "type": "function",
+        "name": "search_github_code",
+        "description": "在 GitHub 程式碼中搜尋檔案或內容；尋找 Agent Skill 時優先使用 filename:SKILL.md。",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+            },
+            "required": ["query"],
+        },
+        "strict": False,
+    },
+    {
+        "type": "function",
         "name": "search_huggingface_models",
-        "description": "搜尋 Hugging Face 模型。只有在需求需要預訓練模型、模型權重或推論能力時使用。",
+        "description": "透過 Hugging Face API 即時搜尋模型候選。推薦前必須 inspect。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -129,7 +168,7 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "name": "search_huggingface_datasets",
-        "description": "搜尋 Hugging Face 資料集。只有在需求需要訓練、評估或範例資料時使用。",
+        "description": "透過 Hugging Face API 即時搜尋資料集候選。推薦前必須 inspect。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -144,7 +183,7 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "name": "search_papers",
-        "description": "搜尋 Semantic Scholar、OpenAlex 與 arXiv 的研究論文。適合研究方法、技術比較、近期論文或學術背景。",
+        "description": "透過學術索引即時搜尋論文候選；論文不限平台。推薦前必須 inspect。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -158,8 +197,8 @@ AGENT_TOOLS = [
     },
     {
         "type": "function",
-        "name": "read_github_repository",
-        "description": "深入讀取某個已知 GitHub repository 的 README、授權、更新狀態與基本資訊。",
+        "name": "inspect_github_repository",
+        "description": "深入查閱 GitHub repository 的 README、目錄、manifest、Skill 定義、授權與維護狀態。",
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -170,6 +209,48 @@ AGENT_TOOLS = [
                 }
             },
             "required": ["repository"],
+        },
+        "strict": False,
+    },
+    {
+        "type": "function",
+        "name": "read_github_file",
+        "description": "讀取已知 GitHub repository 中與需求相關的關鍵程式碼或設定檔。",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "repository": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": ["repository", "path"],
+        },
+        "strict": False,
+    },
+    {
+        "type": "function",
+        "name": "inspect_huggingface_resource",
+        "description": "深入查閱 Hugging Face model 或 dataset 的 Card、設定、檔案清單、輸入輸出與限制。",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "resource_id": {"type": "string"},
+                "resource_type": {"type": "string", "enum": ["model", "dataset"]},
+            },
+            "required": ["resource_id", "resource_type"],
+        },
+        "strict": False,
+    },
+    {
+        "type": "function",
+        "name": "inspect_paper",
+        "description": "深入查閱已搜尋到的論文。使用 source_id 取得摘要及公開 PDF，並標明實際分析依據。",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"source_id": {"type": "string"}},
+            "required": ["source_id"],
         },
         "strict": False,
     },
@@ -216,6 +297,21 @@ def request_text(url, params=None, headers=None):
         return response.read().decode("utf-8", errors="replace")
 
 
+def request_bytes(url, headers=None, max_bytes=40 * 1024 * 1024):
+    request = Request(
+        str(url),
+        headers={"User-Agent": "AI-Trend-Dashboard", **(headers or {})},
+    )
+    with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+        content_length = int(response.headers.get("Content-Length") or 0)
+        if content_length and content_length > max_bytes:
+            raise ValueError("remote file is too large")
+        data = response.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError("remote file is too large")
+    return data
+
+
 def clamp_limit(value, default=8):
     try:
         value = int(value)
@@ -238,20 +334,102 @@ def github_headers(raw=False):
     return headers
 
 
-def read_github_repository(repository):
+def github_request_json(url, params=None):
+    try:
+        return request_json(url, params=params, headers=github_headers())
+    except HTTPError as error:
+        if error.code not in {401, 403} or not os.getenv("GITHUB_TOKEN"):
+            raise
+        return request_json(
+            url,
+            params=params,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+
+
+def github_request_text(url):
+    try:
+        return request_text(url, headers=github_headers(raw=True))
+    except HTTPError as error:
+        if error.code not in {401, 403} or not os.getenv("GITHUB_TOKEN"):
+            raise
+        return request_text(url, headers={"Accept": "application/vnd.github.raw+json"})
+
+
+def validate_repository(repository):
     repository = str(repository or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("repository must use owner/name format")
+    return repository
 
-    repo = request_json(f"https://api.github.com/repos/{repository}", headers=github_headers())
+
+def read_github_file(repository, path):
+    repository = validate_repository(repository)
+    path = str(path or "").strip().lstrip("/")
+    if not path or ".." in path.split("/"):
+        raise ValueError("invalid repository path")
+    return github_request_text(
+        f"https://api.github.com/repos/{repository}/contents/{quote(path, safe='/')}"
+    )[:FILE_CONTENT_LIMIT]
+
+
+def inspect_github_repository(repository):
+    repository = validate_repository(repository)
+
+    repo = github_request_json(f"https://api.github.com/repos/{repository}")
     readme = ""
     try:
-        readme = request_text(
-            f"https://api.github.com/repos/{repository}/readme",
-            headers=github_headers(raw=True),
-        )
+        readme = github_request_text(f"https://api.github.com/repos/{repository}/readme")
     except Exception:
         pass
+
+    tree_paths = []
+    try:
+        default_branch = repo.get("default_branch") or "main"
+        tree = github_request_json(
+            f"https://api.github.com/repos/{repository}/git/trees/{quote(default_branch, safe='')}",
+            params={"recursive": "1"},
+        )
+        tree_paths = [
+            item.get("path", "")
+            for item in tree.get("tree", [])
+            if item.get("type") == "blob" and item.get("path")
+        ][:300]
+    except Exception:
+        pass
+
+    priority_names = {
+        "skill.md",
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "setup.py",
+        "cargo.toml",
+        "go.mod",
+        "dockerfile",
+        "compose.yml",
+        "docker-compose.yml",
+    }
+    priority_paths = sorted(
+        tree_paths,
+        key=lambda path: (
+            0 if path.lower().endswith("skill.md") else 1,
+            0 if path.rsplit("/", 1)[-1].lower() in priority_names else 1,
+            path.count("/"),
+            len(path),
+        ),
+    )
+    key_files = []
+    for path in priority_paths:
+        filename = path.rsplit("/", 1)[-1].lower()
+        if not (path.lower().endswith("skill.md") or filename in priority_names):
+            continue
+        try:
+            key_files.append({"path": path, "content": read_github_file(repository, path)})
+        except Exception:
+            continue
+        if len(key_files) >= 8:
+            break
 
     license_data = repo.get("license") or {}
     return {
@@ -266,15 +444,18 @@ def read_github_repository(repository):
         "license": license_data.get("spdx_id") or license_data.get("name") or "",
         "homepage": repo.get("homepage") or "",
         "readme_excerpt": short_text(readme),
+        "tree_paths": tree_paths,
+        "key_files": key_files,
+        "analysis_basis": "README, repository tree, manifests and Skill definitions",
+        "inspected": True,
     }
 
 
 def github_search(query, limit=8):
     limit = clamp_limit(limit)
-    data = request_json(
+    data = github_request_json(
         "https://api.github.com/search/repositories",
         params={"q": str(query).strip(), "per_page": limit},
-        headers=github_headers(),
     )
 
     results = []
@@ -293,14 +474,52 @@ def github_search(query, limit=8):
             "archived": False,
             "license": (repo.get("license") or {}).get("spdx_id") or "",
             "homepage": repo.get("homepage") or "",
-            "readme_excerpt": "",
+            "inspected": False,
         }
-        if len(results) < 4:
-            try:
-                result.update(read_github_repository(full_name))
-            except Exception:
-                pass
         results.append(result)
+    return results[:limit]
+
+
+def github_code_search(query, limit=8):
+    limit = min(10, clamp_limit(limit))
+    try:
+        data = github_request_json(
+            "https://api.github.com/search/code",
+            params={"q": str(query).strip(), "per_page": limit},
+        )
+    except HTTPError:
+        discovery = web_research(f"{query} GitHub", "github")
+        data = {
+            "items": [
+                {
+                    "repository": {
+                        "full_name": github_repository_from_url(item.get("url")),
+                        "html_url": item.get("url"),
+                    },
+                    "path": "",
+                    "html_url": item.get("url"),
+                }
+                for item in discovery.get("sources", [])
+            ]
+        }
+    results = []
+    seen = set()
+    for item in data.get("items", []):
+        repo = item.get("repository") or {}
+        full_name = repo.get("full_name") or ""
+        if not full_name or full_name in seen:
+            continue
+        seen.add(full_name)
+        results.append(
+            {
+                "name": full_name,
+                "url": repo.get("html_url") or f"https://github.com/{full_name}",
+                "description": repo.get("description") or "",
+                "matched_path": item.get("path") or "",
+                "match_url": item.get("html_url") or "",
+                "inspected": False,
+            }
+        )
     return results[:limit]
 
 
@@ -347,6 +566,7 @@ def huggingface_model_search(query, limit=8):
                 "tags": (model.get("tags") or [])[:12],
                 "license": _huggingface_license(model),
                 "updated_at": model.get("lastModified") or "",
+                "inspected": False,
             }
         )
     return results
@@ -384,9 +604,78 @@ def huggingface_dataset_search(query, limit=8):
                 "tags": (dataset.get("tags") or [])[:12],
                 "license": _huggingface_license(dataset),
                 "updated_at": dataset.get("lastModified") or "",
+                "inspected": False,
             }
         )
     return results
+
+
+def inspect_huggingface_resource(resource_id, resource_type):
+    resource_id = str(resource_id or "").strip()
+    resource_type = str(resource_type or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", resource_id):
+        raise ValueError("resource_id must use owner/name format")
+    if resource_type not in {"model", "dataset"}:
+        raise ValueError("resource_type must be model or dataset")
+
+    token = os.getenv("HF_TOKEN", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    api_kind = "models" if resource_type == "model" else "datasets"
+    page_prefix = "" if resource_type == "model" else "datasets/"
+    data = request_json(
+        f"https://huggingface.co/api/{api_kind}/{quote(resource_id, safe='/')}",
+        params={"full": "true"},
+        headers=headers,
+    )
+
+    card = ""
+    try:
+        card = request_text(
+            f"https://huggingface.co/{page_prefix}{resource_id}/raw/main/README.md",
+            headers=headers,
+        )[:README_LIMIT]
+    except Exception:
+        pass
+
+    config = ""
+    if resource_type == "model":
+        try:
+            config = request_text(
+                f"https://huggingface.co/{resource_id}/raw/main/config.json",
+                headers=headers,
+            )[:FILE_CONTENT_LIMIT]
+        except Exception:
+            pass
+
+    siblings = [
+        item.get("rfilename", "")
+        for item in (data.get("siblings") or [])
+        if item.get("rfilename")
+    ][:200]
+    item_id = data.get("modelId") or data.get("id") or resource_id
+    basis_parts = []
+    if card:
+        basis_parts.append("Model Card" if resource_type == "model" else "Dataset Card")
+    if config:
+        basis_parts.append("config")
+    if siblings:
+        basis_parts.append("repository file list")
+    return {
+        "name": item_id,
+        "url": f"https://huggingface.co/{page_prefix}{item_id}",
+        "description": short_text((data.get("cardData") or {}).get("description"), 1000),
+        "task": data.get("pipeline_tag") or "",
+        "downloads": int(data.get("downloads") or 0),
+        "likes": int(data.get("likes") or 0),
+        "tags": (data.get("tags") or [])[:20],
+        "license": _huggingface_license(data),
+        "updated_at": data.get("lastModified") or "",
+        "card_excerpt": card,
+        "config_excerpt": config,
+        "files": siblings,
+        "analysis_basis": ", ".join(basis_parts) or "Hugging Face API metadata",
+        "inspected": True,
+    }
 
 
 def openalex_abstract(inverted_index):
@@ -409,7 +698,7 @@ def semantic_scholar_search(query, limit=6):
         params={
             "query": str(query).strip(),
             "limit": clamp_limit(limit),
-            "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors",
+            "fields": "title,abstract,url,year,venue,publicationDate,citationCount,authors,openAccessPdf,externalIds",
         },
         headers=headers,
     )
@@ -427,7 +716,10 @@ def semantic_scholar_search(query, limit=6):
                 "venue": paper.get("venue") or "",
                 "citations": int(paper.get("citationCount") or 0),
                 "authors": [author.get("name", "") for author in (paper.get("authors") or [])[:5]],
+                "pdf_url": (paper.get("openAccessPdf") or {}).get("url") or "",
+                "doi": (paper.get("externalIds") or {}).get("DOI") or "",
                 "provider": "Semantic Scholar",
+                "inspected": False,
             }
         )
     return results
@@ -459,7 +751,12 @@ def openalex_search(query, limit=6):
                     ((entry.get("author") or {}).get("display_name") or "")
                     for entry in (work.get("authorships") or [])[:5]
                 ],
+                "pdf_url": (work.get("best_oa_location") or {}).get("pdf_url")
+                or (work.get("primary_location") or {}).get("pdf_url")
+                or "",
+                "doi": work.get("doi") or "",
                 "provider": "OpenAlex",
+                "inspected": False,
             }
         )
     return results
@@ -495,7 +792,11 @@ def arxiv_search(query, limit=6):
                     author.findtext("atom:name", default="", namespaces=namespace)
                     for author in entry.findall("atom:author", namespace)[:5]
                 ],
+                "pdf_url": (entry.findtext("atom:id", default="", namespaces=namespace) or "")
+                .replace("http://arxiv.org/abs/", "https://arxiv.org/pdf/")
+                .replace("https://arxiv.org/abs/", "https://arxiv.org/pdf/"),
                 "provider": "arXiv",
+                "inspected": False,
             }
         )
     return results
@@ -524,6 +825,133 @@ def paper_search(query, limit=8):
     return results
 
 
+def extract_pdf_evidence(pdf_data):
+    reader = PdfReader(io.BytesIO(pdf_data))
+    pages = []
+    for index, page in enumerate(reader.pages[:80]):
+        try:
+            text = (page.extract_text() or "").strip()
+        except Exception:
+            text = ""
+        if text:
+            pages.append((index + 1, text))
+
+    if not pages:
+        raise ValueError("PDF contains no extractable text")
+
+    keywords = (
+        "method",
+        "methodology",
+        "approach",
+        "architecture",
+        "experiment",
+        "evaluation",
+        "result",
+        "discussion",
+        "conclusion",
+        "limitation",
+        "方法",
+        "實驗",
+        "結果",
+        "結論",
+        "限制",
+    )
+    selected = {number for number, _ in pages[:2]}
+    selected.add(pages[-1][0])
+    for number, text in pages:
+        lowered = text.lower()
+        if any(keyword in lowered for keyword in keywords):
+            selected.add(number)
+        if len(selected) >= 10:
+            break
+
+    chunks = []
+    for number, text in pages:
+        if number in selected:
+            chunks.append(f"[Page {number}]\n{text}")
+    evidence = "\n\n".join(chunks)
+    return evidence[:PAPER_CONTENT_LIMIT], len(reader.pages), sorted(selected)
+
+
+def html_to_text(raw_html):
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", str(raw_html or ""))
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    return short_text(html.unescape(text), PAPER_CONTENT_LIMIT)
+
+
+def inspect_paper_source(source):
+    metadata = source.get("metadata") or {}
+    abstract = source.get("description") or ""
+    pdf_url = str(metadata.get("pdf_url") or "").strip()
+    paper_text = ""
+    page_count = 0
+    selected_pages = []
+    analysis_basis = ""
+    full_text_available = False
+
+    candidate_pdf_urls = []
+    for url in (pdf_url, source.get("url")):
+        if not url:
+            continue
+        if "arxiv.org/pdf/" in url and not url.endswith(".pdf"):
+            candidate_pdf_urls.append(f"{url}.pdf")
+        candidate_pdf_urls.append(url)
+    for url in candidate_pdf_urls:
+        try:
+            pdf_data = request_bytes(url)
+            if not pdf_data.startswith(b"%PDF"):
+                continue
+            paper_text, page_count, selected_pages = extract_pdf_evidence(pdf_data)
+            analysis_basis = "公開 PDF 全文的重要頁面"
+            pdf_url = url
+            full_text_available = True
+            break
+        except Exception:
+            continue
+
+    arxiv_match = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})(?:v\d+)?", " ".join(candidate_pdf_urls))
+    if not paper_text and arxiv_match:
+        try:
+            ar5iv_text = html_to_text(
+                request_text(f"https://ar5iv.labs.arxiv.org/html/{arxiv_match.group(1)}")
+            )
+        except Exception:
+            ar5iv_text = ""
+        if ar5iv_text:
+            paper_text = ar5iv_text
+            analysis_basis = "公開論文全文的 HTML 版本"
+            full_text_available = True
+
+    if not paper_text:
+        try:
+            landing_text = html_to_text(request_text(source.get("url")))
+        except Exception:
+            landing_text = ""
+        if landing_text and any(
+            marker in landing_text.lower()
+            for marker in ("abstract", "authors", "doi", "journal", "conference", "proceedings")
+        ):
+            paper_text = landing_text
+            analysis_basis = "論文頁面可讀文字"
+
+    if not paper_text and abstract:
+        paper_text = abstract
+        analysis_basis = "摘要與書目資料（未取得可解析全文）"
+
+    if not paper_text:
+        raise ValueError("unable to verify paper content")
+
+    return {
+        "paper_text": paper_text,
+        "pdf_url": pdf_url,
+        "page_count": page_count,
+        "selected_pages": selected_pages,
+        "analysis_basis": analysis_basis,
+        "full_text_available": full_text_available,
+        "inspected": True,
+    }
+
+
 class SourceRegistry:
     def __init__(self):
         self._sources = []
@@ -534,15 +962,25 @@ class SourceRegistry:
         if not url.startswith(("http://", "https://")):
             return None
         if url in self._by_url:
-            return self._by_url[url]
+            source = self._by_url[url]
+            new_description = short_text(description, 2000)
+            if len(new_description) > len(source["description"]):
+                source["description"] = new_description
+            if title and source["title"] == source["url"]:
+                source["title"] = str(title).strip()
+            if metadata:
+                source["metadata"].update(metadata)
+            if source["source_type"].endswith("_candidate") or not str(source_type).endswith("_candidate"):
+                source["source_type"] = str(source_type)
+            return source
 
         source = {
             "source_id": f"source_{len(self._sources) + 1}",
             "source_type": str(source_type or "web"),
             "title": str(title or url).strip(),
             "url": url,
-            "description": short_text(description, 1200),
-            "metadata": metadata or {},
+            "description": short_text(description, 2000),
+            "metadata": {"inspected": False, **(metadata or {})},
         }
         self._sources.append(source)
         self._by_url[url] = source
@@ -554,72 +992,207 @@ class SourceRegistry:
                 return source
         return None
 
+    def all(self):
+        return list(self._sources)
+
+    def update(self, source_id, source_type=None, description=None, metadata=None):
+        source = self.get(source_id)
+        if not source:
+            return None
+        if source_type:
+            source["source_type"] = str(source_type)
+        if description and len(str(description)) > len(source["description"]):
+            source["description"] = short_text(description, 2000)
+        if metadata:
+            source["metadata"].update(metadata)
+        return source
+
 
 def source_for_result(registry, source_type, result):
     title = result.get("name") or result.get("title") or result.get("url")
     description = result.get("description") or result.get("abstract") or result.get("readme_excerpt") or ""
+    evidence_keys = {
+        "readme_excerpt",
+        "tree_paths",
+        "key_files",
+        "card_excerpt",
+        "config_excerpt",
+        "files",
+        "paper_text",
+    }
     metadata = {
         key: value
         for key, value in result.items()
-        if key not in {"name", "title", "url", "description", "abstract", "readme_excerpt"}
+        if key not in {"name", "title", "url", "description", "abstract"} | evidence_keys
         and value not in (None, "", [], {})
     }
     source = registry.add(source_type, title, result.get("url"), description, metadata)
     if not source:
         return None
-    return {
+    payload = {
         "source_id": source["source_id"],
         "title": source["title"],
         "url": source["url"],
         "description": source["description"],
         "metadata": source["metadata"],
     }
+    evidence = {key: result.get(key) for key in evidence_keys if result.get(key)}
+    if evidence:
+        payload["evidence"] = evidence
+    return payload
+
+
+def github_repository_from_url(url):
+    parsed = urlparse(str(url or ""))
+    if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
+        return ""
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return ""
+    repository = f"{parts[0]}/{parts[1].removesuffix('.git')}"
+    try:
+        return validate_repository(repository)
+    except ValueError:
+        return ""
+
+
+def huggingface_resource_from_url(url):
+    parsed = urlparse(str(url or ""))
+    if parsed.netloc.lower() not in {"huggingface.co", "www.huggingface.co"}:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 3 and parts[0] == "datasets":
+        return {"resource_type": "dataset", "resource_id": f"{parts[1]}/{parts[2]}"}
+    if len(parts) >= 2 and parts[0] not in {"spaces", "blog", "docs", "datasets"}:
+        return {"resource_type": "model", "resource_id": f"{parts[0]}/{parts[1]}"}
+    return None
+
+
+def register_results(registry, source_type, results):
+    registered = []
+    for result in results:
+        source = source_for_result(registry, source_type, result)
+        if source:
+            registered.append(source)
+    return registered
 
 
 def execute_tool(name, arguments, registry):
     query = str(arguments.get("query") or "").strip()
     limit = clamp_limit(arguments.get("limit"), 8)
 
-    if name == "search_web":
-        domains = arguments.get("allowed_domains") or None
-        result = web_research(query, allowed_domains=domains)
-        sources = []
+    if name == "discover_online":
+        source_kind = str(arguments.get("source_kind") or "").strip()
+        result = web_research(query, source_kind)
+        registered = []
         for item in result.get("sources", []):
-            source = registry.add("web", item.get("title"), item.get("url"))
+            url = item.get("url") or ""
+            metadata = {
+                "inspected": False,
+                "discovered_online": True,
+                "discovery_summary": short_text(result.get("summary"), 1800),
+            }
+            if source_kind == "github":
+                repository = github_repository_from_url(url)
+                if not repository:
+                    continue
+                url = f"https://github.com/{repository}"
+                metadata["repository"] = repository
+                candidate_type = "github_candidate"
+            elif source_kind == "huggingface":
+                resource = huggingface_resource_from_url(url)
+                if not resource:
+                    continue
+                prefix = "datasets/" if resource["resource_type"] == "dataset" else ""
+                url = f"https://huggingface.co/{prefix}{resource['resource_id']}"
+                metadata.update(resource)
+                candidate_type = "huggingface_candidate"
+            elif source_kind == "paper":
+                candidate_type = "paper_candidate"
+            else:
+                continue
+            source = registry.add(candidate_type, item.get("title"), url, metadata=metadata)
             if source:
-                sources.append(
+                registered.append(
                     {
                         "source_id": source["source_id"],
                         "title": source["title"],
                         "url": source["url"],
+                        "metadata": source["metadata"],
                     }
                 )
-        return {"summary": result.get("summary", ""), "results": sources}
+        return {"summary": result.get("summary", ""), "results": registered}
 
     if name == "search_github":
-        results = github_search(query, limit)
-        source_type = "github"
-    elif name == "search_huggingface_models":
-        results = huggingface_model_search(query, limit)
-        source_type = "huggingface_model"
-    elif name == "search_huggingface_datasets":
-        results = huggingface_dataset_search(query, limit)
-        source_type = "huggingface_dataset"
-    elif name == "search_papers":
-        results = paper_search(query, limit)
-        source_type = "paper"
-    elif name == "read_github_repository":
-        results = [read_github_repository(arguments.get("repository"))]
-        source_type = "github"
-    else:
-        raise ValueError(f"unknown tool: {name}")
+        return {"results": register_results(registry, "github", github_search(query, limit))}
 
-    registered = []
-    for result in results:
-        source = source_for_result(registry, source_type, result)
-        if source:
-            registered.append(source)
-    return {"results": registered}
+    if name == "search_github_code":
+        return {"results": register_results(registry, "github", github_code_search(query, limit))}
+
+    if name == "inspect_github_repository":
+        result = inspect_github_repository(arguments.get("repository"))
+        return {"results": register_results(registry, "github", [result])}
+
+    if name == "read_github_file":
+        repository = validate_repository(arguments.get("repository"))
+        path = str(arguments.get("path") or "").strip()
+        content = read_github_file(repository, path)
+        source = registry.add(
+            "github",
+            repository,
+            f"https://github.com/{repository}",
+        )
+        return {
+            "source_id": source["source_id"] if source else "",
+            "repository": repository,
+            "path": path,
+            "content": content,
+        }
+
+    if name == "search_huggingface_models":
+        return {
+            "results": register_results(
+                registry,
+                "huggingface_model",
+                huggingface_model_search(query, limit),
+            )
+        }
+
+    if name == "search_huggingface_datasets":
+        return {
+            "results": register_results(
+                registry,
+                "huggingface_dataset",
+                huggingface_dataset_search(query, limit),
+            )
+        }
+
+    if name == "inspect_huggingface_resource":
+        resource_type = str(arguments.get("resource_type") or "")
+        result = inspect_huggingface_resource(arguments.get("resource_id"), resource_type)
+        source_type = "huggingface_model" if resource_type == "model" else "huggingface_dataset"
+        return {"results": register_results(registry, source_type, [result])}
+
+    if name == "search_papers":
+        return {"results": register_results(registry, "paper", paper_search(query, limit))}
+
+    if name == "inspect_paper":
+        source_id = str(arguments.get("source_id") or "").strip()
+        source = registry.get(source_id)
+        if not source or source["source_type"] not in {"paper", "paper_candidate"}:
+            raise ValueError("source_id is not a paper candidate")
+        inspection = inspect_paper_source(source)
+        source = registry.update(source_id, source_type="paper", metadata=inspection)
+        return {
+            "source_id": source_id,
+            "title": source["title"],
+            "url": source["url"],
+            "description": source["description"],
+            "metadata": source["metadata"],
+            "evidence": {"paper_text": inspection["paper_text"]},
+        }
+
+    raise ValueError(f"unknown tool: {name}")
 
 
 def create_agent_response(**kwargs):
@@ -640,50 +1213,139 @@ def create_agent_response(**kwargs):
     )
 
 
-def normalize_advice(data, registry):
-    assumptions = [str(item).strip() for item in data.get("assumptions", []) if str(item).strip()]
-    sections = []
-    used_source_ids = []
+def explicit_required_types(query):
+    lowered = str(query or "").lower()
+    if "skill" in lowered:
+        return {"github"}
+    if "資料集" in lowered or "dataset" in lowered:
+        return {"huggingface_dataset", "github"}
+    if "模型" in lowered or re.search(r"\bmodels?\b", lowered):
+        return {"huggingface_model", "github"}
+    if "論文" in lowered or re.search(r"\b(papers?|research paper)\b", lowered):
+        return {"paper"}
+    return set()
 
-    for raw_section in data.get("sections", []):
-        title = str(raw_section.get("title") or "").strip()
-        summary = str(raw_section.get("summary") or "").strip()
+
+def ensure_required_inspections(registry, required_types, target_count=3):
+    if not required_types:
+        return []
+
+    def matches(source):
+        source_type = source["source_type"]
+        if source_type in required_types:
+            return True
+        if source_type == "github_candidate" and "github" in required_types:
+            return True
+        if source_type == "huggingface_candidate":
+            resource_type = source["metadata"].get("resource_type")
+            return (
+                resource_type == "model" and "huggingface_model" in required_types
+            ) or (
+                resource_type == "dataset" and "huggingface_dataset" in required_types
+            )
+        return source_type == "paper_candidate" and "paper" in required_types
+
+    inspected_count = sum(
+        1
+        for source in registry.all()
+        if matches(source) and source["metadata"].get("inspected")
+    )
+    supplements = []
+    for source in registry.all():
+        if inspected_count >= target_count:
+            break
+        if not matches(source) or source["metadata"].get("inspected"):
+            continue
+        try:
+            source_type = source["source_type"]
+            if source_type in {"github", "github_candidate"}:
+                repository = source["metadata"].get("repository") or github_repository_from_url(source["url"])
+                result = inspect_github_repository(repository)
+                supplements.extend(register_results(registry, "github", [result]))
+            elif source_type in {"huggingface_model", "huggingface_dataset", "huggingface_candidate"}:
+                resource = huggingface_resource_from_url(source["url"])
+                if not resource:
+                    continue
+                result = inspect_huggingface_resource(resource["resource_id"], resource["resource_type"])
+                final_type = "huggingface_model" if resource["resource_type"] == "model" else "huggingface_dataset"
+                supplements.extend(register_results(registry, final_type, [result]))
+            elif source_type in {"paper", "paper_candidate"}:
+                inspection = inspect_paper_source(source)
+                registry.update(source["source_id"], source_type="paper", metadata=inspection)
+                supplements.append(
+                    {
+                        "source_id": source["source_id"],
+                        "title": source["title"],
+                        "url": source["url"],
+                        "description": source["description"],
+                        "metadata": source["metadata"],
+                        "evidence": {"paper_text": inspection["paper_text"]},
+                    }
+                )
+            inspected_count += 1
+        except Exception:
+            continue
+    return supplements
+
+
+def normalize_advice(data, registry, required_types=None):
+    def visible_text(value, limit=1600):
+        text = str(value or "").strip()
+        text = re.sub(r"(?i)\bsource_id\s*:?\s*source_\d+\b", "", text)
+        text = re.sub(r"\bsource_\d+\b", "", text)
+        return re.sub(r"\s+", " ", text).strip()[:limit]
+
+    allowed_types = {"github", "huggingface_model", "huggingface_dataset", "paper"}
+    sections = []
+    total_items = 0
+    seen_source_ids = set()
+
+    for raw_section in data.get("sections", [])[:4]:
+        title = visible_text(raw_section.get("title"), 80)
+        summary = visible_text(raw_section.get("summary"), 400)
         items = []
         for raw_item in raw_section.get("items", []):
+            if total_items >= MAX_FINAL_RESULTS:
+                break
             source_id = str(raw_item.get("source_id") or "").strip()
             source = registry.get(source_id)
-            if not source:
+            if (
+                not source
+                or source_id in seen_source_ids
+                or source["source_type"] not in allowed_types
+                or (required_types and source["source_type"] not in required_types)
+                or not source["metadata"].get("inspected")
+            ):
                 continue
-            used_source_ids.append(source_id)
+            limitations = visible_text(raw_item.get("limitations"), 700)
+            if source["source_type"] == "paper" and not source["metadata"].get("full_text_available"):
+                abstract_notice = "未取得可解析全文，本項分析以摘要與書目資料為主。"
+                if abstract_notice not in limitations:
+                    limitations = f"{limitations} {abstract_notice}".strip()
             items.append(
                 {
-                    "source_id": source_id,
-                    "title": str(raw_item.get("title") or source["title"]).strip(),
-                    "description": str(raw_item.get("description") or "").strip(),
-                    "details": [
-                        str(detail).strip()
-                        for detail in raw_item.get("details", [])
-                        if str(detail).strip()
-                    ],
+                    "title": visible_text(raw_item.get("title") or source["title"], 160),
+                    "description": visible_text(raw_item.get("description"), 700),
+                    "how_it_works": visible_text(raw_item.get("how_it_works"), 1000),
+                    "why_relevant": visible_text(raw_item.get("why_relevant"), 700),
+                    "limitations": limitations,
+                    "evidence_basis": visible_text(
+                        source["metadata"].get("analysis_basis")
+                        or raw_item.get("evidence_basis"),
+                        300,
+                    ),
                     "url": source["url"],
                     "source_type": source["source_type"],
-                    "metadata": source["metadata"],
                 }
             )
-        if title or summary or items:
+            seen_source_ids.add(source_id)
+            total_items += 1
+        if items:
             sections.append({"title": title or "相關資源", "summary": summary, "items": items})
 
-    requested_ids = [str(item) for item in data.get("source_ids", [])]
-    ordered_ids = []
-    for source_id in used_source_ids + requested_ids:
-        if registry.get(source_id) and source_id not in ordered_ids:
-            ordered_ids.append(source_id)
-
     return {
-        "answer": str(data.get("answer") or "").strip(),
-        "assumptions": assumptions,
+        "answer": visible_text(data.get("answer"), 500),
         "sections": sections,
-        "sources": [registry.get(source_id) for source_id in ordered_ids],
     }
 
 
@@ -693,6 +1355,7 @@ def advise_project(user_query):
         raise ValueError("query is required")
 
     registry = SourceRegistry()
+    required_types = explicit_required_types(query)
     response = create_agent_response(input=query)
 
     for _ in range(MAX_AGENT_ROUNDS):
@@ -723,8 +1386,48 @@ def advise_project(user_query):
             tool_choice="none",
         )
 
+    supplements = ensure_required_inspections(registry, required_types)
+    if supplements:
+        response = create_agent_response(
+            previous_response_id=response.id,
+            input=(
+                "使用者明確指定了資源類型。以下是系統針對該類型補做的深入查閱結果。"
+                "請只推薦符合原始需求且已完成查閱的資源，輸出精簡最終 JSON；不要用其他類型替代。\n\n"
+                + json.dumps(supplements, ensure_ascii=False)
+            ),
+        )
+        for _ in range(4):
+            calls = [
+                item
+                for item in (response.output or [])
+                if getattr(item, "type", "") == "function_call"
+            ]
+            if not calls:
+                break
+            tool_outputs = []
+            for call in calls:
+                try:
+                    arguments = json.loads(call.arguments or "{}")
+                    result = execute_tool(call.name, arguments, registry)
+                except Exception as error:
+                    result = {"error": str(error)[:600], "results": []}
+                tool_outputs.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call.call_id,
+                        "output": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+            response = create_agent_response(previous_response_id=response.id, input=tool_outputs)
+        else:
+            response = create_agent_response(
+                previous_response_id=response.id,
+                input="請停止呼叫工具，只用已深讀且符合指定類型的來源輸出最終 JSON。",
+                tool_choice="none",
+            )
+
     if not response.output_text:
         raise RuntimeError("research agent returned no final answer")
 
     data = extract_json(response.output_text)
-    return normalize_advice(data, registry)
+    return normalize_advice(data, registry, required_types)

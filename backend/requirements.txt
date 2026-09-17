@@ -2,6 +2,7 @@ fastapi==0.125.0
 cryptography==45.0.7
 feedparser==6.0.12
 openai==2.33.0
+pypdf==6.19.0
 pymysql==1.1.2
 python-dotenv==1.2.2
 uvicorn[standard]==0.38.0

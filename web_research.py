@@ -20,11 +20,30 @@ def get_client():
     return client
 
 
-def web_research(query, allowed_domains=None):
+SEARCH_GUIDES = {
+    "github": (
+        ["github.com"],
+        "只尋找 GitHub repository、repository 內的檔案或 GitHub Skill。不要回傳課程、文章或產品網站。",
+    ),
+    "huggingface": (
+        ["huggingface.co"],
+        "只尋找 Hugging Face model 或 dataset 頁面。不要回傳 Spaces、文章、課程或一般產品頁。",
+    ),
+    "paper": (
+        None,
+        "只尋找真正的學術論文、會議論文、期刊論文或預印本。優先找 DOI、正式論文頁或可下載 PDF；不要回傳新聞、部落格、課程或一般產品頁。",
+    ),
+}
+
+
+def web_research(query, source_kind):
     query = str(query or "").strip()
     if not query:
         raise ValueError("query is required")
+    if source_kind not in SEARCH_GUIDES:
+        raise ValueError("source_kind must be github, huggingface or paper")
 
+    allowed_domains, guide = SEARCH_GUIDES[source_kind]
     tool = {"type": "web_search"}
     if allowed_domains:
         domains = [str(domain).strip() for domain in allowed_domains if str(domain).strip()]
@@ -36,9 +55,8 @@ def web_research(query, allowed_domains=None):
         tools=[tool],
         include=["web_search_call.action.sources"],
         input=(
-            "你是技術研究 Agent 的網路搜尋工具。請直接搜尋指定查詢，整理具體事實、"
-            "可用資源、限制與重要差異。優先採用官方文件、原始專案、論文、產品頁或"
-            "可信技術資料；不要臆測不存在的名稱、功能或網址。"
+            "你是技術資源候選發現工具。請即時搜尋網路，但嚴格遵守資源範圍。"
+            f"{guide} 搜尋結果只是候選，後續程式還會深入驗證；不要臆測不存在的名稱或網址。"
             f"\n\n搜尋查詢：{query}"
         ),
     )
@@ -63,5 +81,6 @@ def web_research(query, allowed_domains=None):
 
     return {
         "summary": response.output_text,
+        "source_kind": source_kind,
         "sources": sources,
     }

@@ -291,44 +291,39 @@ onMounted(async () => {
       <p v-if="projectError" class="notice">{{ projectError }}</p>
       <div v-if="projectAdvice" class="advisor-result">
         <section class="advisor-overview">
-          <h3>分析結果</h3>
+          <h3>搜尋結果</h3>
           <p class="advisor-answer">{{ projectAdvice.answer }}</p>
-        </section>
-
-        <section v-if="projectAdvice.assumptions?.length" class="advisor-assumptions">
-          <h3>採用假設</h3>
-          <ul>
-            <li v-for="assumption in projectAdvice.assumptions" :key="assumption">{{ assumption }}</li>
-          </ul>
         </section>
 
         <section v-for="section in projectAdvice.sections" :key="section.title">
           <h3>{{ section.title }}</h3>
           <p v-if="section.summary" class="advisor-section-summary">{{ section.summary }}</p>
           <div v-if="section.items?.length" class="advisor-cards">
-            <article v-for="item in section.items" :key="`${section.title}-${item.source_id}`">
-              <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+            <article v-for="item in section.items" :key="item.url">
+              <div class="advisor-card-heading">
+                <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+                <span>{{ sourceTypeLabel(item.source_type) }}</span>
+              </div>
               <p>{{ item.description }}</p>
-              <ul v-if="item.details?.length" class="advisor-details">
-                <li v-for="detail in item.details" :key="detail">{{ detail }}</li>
-              </ul>
-              <span>{{ sourceTypeLabel(item.source_type) }}</span>
+              <dl class="advisor-facts">
+                <div>
+                  <dt>運作方式</dt>
+                  <dd>{{ item.how_it_works }}</dd>
+                </div>
+                <div>
+                  <dt>適合原因</dt>
+                  <dd>{{ item.why_relevant }}</dd>
+                </div>
+                <div>
+                  <dt>限制</dt>
+                  <dd>{{ item.limitations || "未發現明確限制。" }}</dd>
+                </div>
+                <div>
+                  <dt>查閱依據</dt>
+                  <dd>{{ item.evidence_basis }}</dd>
+                </div>
+              </dl>
             </article>
-          </div>
-        </section>
-
-        <section v-if="projectAdvice.sources?.length">
-          <h3>資料來源</h3>
-          <div class="source-list">
-            <a
-              v-for="source in projectAdvice.sources"
-              :key="source.url || source.title"
-              :href="source.url"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {{ sourceTypeLabel(source.source_type) }} / {{ source.title }}
-            </a>
           </div>
         </section>
       </div>
