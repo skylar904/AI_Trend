@@ -297,6 +297,32 @@ summary {
   line-height: 1.75;
 }
 
+.advisor-answer {
+  white-space: pre-line;
+}
+
+.advisor-assumptions {
+  padding: 14px 16px;
+  border-left: 4px solid var(--accent);
+  background: var(--surface-subtle);
+}
+
+.advisor-assumptions ul,
+.advisor-details {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted-strong);
+}
+
+.advisor-assumptions li,
+.advisor-details li {
+  line-height: 1.65;
+}
+
+.advisor-section-summary {
+  margin-bottom: 12px !important;
+}
+
 .advisor-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -337,6 +363,13 @@ summary {
 .advisor-cards p {
   margin-top: 7px;
   font-size: 13px;
+}
+
+.advisor-details {
+  display: grid;
+  gap: 3px;
+  margin-top: 9px;
+  font-size: 12px;
 }
 
 .advisor-cards span {

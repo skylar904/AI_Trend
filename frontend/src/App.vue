@@ -100,8 +100,9 @@ function formatPlatformMetric(value) {
 function sourceTypeLabel(type) {
   const labels = {
     github: "GitHub",
-    huggingface: "Hugging Face",
-    research: "研究",
+    huggingface_model: "Hugging Face 模型",
+    huggingface_dataset: "Hugging Face 資料集",
+    paper: "研究論文",
     web: "Web",
   };
   return labels[type] || type || "來源";
@@ -173,7 +174,7 @@ async function analyzeProject() {
   try {
     projectAdvice.value = await getProjectAdvice(query);
   } catch (err) {
-    projectError.value = "專案分析失敗，請確認 API key 與後端紀錄。";
+    projectError.value = "搜尋分析失敗，請確認 API key 與後端紀錄。";
   } finally {
     projectLoading.value = false;
   }
@@ -268,73 +269,55 @@ onMounted(async () => {
         </div>
     </section>
 
-    <section class="project-advisor" aria-label="專案顧問">
+    <section class="project-advisor" aria-label="技術資源探索">
       <div class="panel-heading advisor-heading">
         <div>
-          <p class="eyebrow">Project Advisor</p>
-          <h2>搜尋相關專案</h2>
+          <p class="eyebrow">Research Agent</p>
+          <h2>技術資源探索</h2>
         </div>
-        <span>GitHub / Hugging Face / Research / Web</span>
+        <span>自主搜尋與來源驗證</span>
       </div>
       <form class="advisor-form" @submit.prevent="analyzeProject">
         <input
           v-model="projectQuery"
           type="search"
-          placeholder="輸入專案想法、AI 工具、模型或技術名詞"
+          placeholder="描述你的想法、問題，或想找的專案、模型、資料集與論文"
         />
         <button type="submit" :disabled="projectLoading || !projectQuery.trim()">
-          {{ projectLoading ? "分析中..." : "開始分析" }}
+          {{ projectLoading ? "搜尋中..." : "開始搜尋" }}
         </button>
       </form>
 
       <p v-if="projectError" class="notice">{{ projectError }}</p>
       <div v-if="projectAdvice" class="advisor-result">
-        <section>
-          <h3>專案本質</h3>
-          <p>{{ projectAdvice.project_nature }}</p>
+        <section class="advisor-overview">
+          <h3>分析結果</h3>
+          <p class="advisor-answer">{{ projectAdvice.answer }}</p>
         </section>
 
-        <section>
-          <h3>GitHub 參考專案</h3>
-          <p v-if="!projectAdvice.github_projects?.length" class="muted-note">沒有找到明確相關專案。</p>
-          <div v-else class="advisor-cards">
-            <article v-for="project in projectAdvice.github_projects" :key="project.url">
-              <a :href="project.url" target="_blank" rel="noreferrer">{{ project.name }}</a>
-              <p>{{ project.why_relevant }}</p>
-              <span>{{ project.language || "unknown" }} / {{ formatPlatformMetric(project.stars) }} stars</span>
+        <section v-if="projectAdvice.assumptions?.length" class="advisor-assumptions">
+          <h3>採用假設</h3>
+          <ul>
+            <li v-for="assumption in projectAdvice.assumptions" :key="assumption">{{ assumption }}</li>
+          </ul>
+        </section>
+
+        <section v-for="section in projectAdvice.sections" :key="section.title">
+          <h3>{{ section.title }}</h3>
+          <p v-if="section.summary" class="advisor-section-summary">{{ section.summary }}</p>
+          <div v-if="section.items?.length" class="advisor-cards">
+            <article v-for="item in section.items" :key="`${section.title}-${item.source_id}`">
+              <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+              <p>{{ item.description }}</p>
+              <ul v-if="item.details?.length" class="advisor-details">
+                <li v-for="detail in item.details" :key="detail">{{ detail }}</li>
+              </ul>
+              <span>{{ sourceTypeLabel(item.source_type) }}</span>
             </article>
           </div>
         </section>
 
-        <section>
-          <h3>Hugging Face 可用模型</h3>
-          <p v-if="!projectAdvice.huggingface_models?.length" class="muted-note">沒有找到明確相關模型。</p>
-          <div v-else class="advisor-cards">
-            <article v-for="model in projectAdvice.huggingface_models" :key="model.url">
-              <a :href="model.url" target="_blank" rel="noreferrer">{{ model.name }}</a>
-              <p>{{ model.why_relevant }}</p>
-              <span>{{ model.task || "model" }} / {{ formatPlatformMetric(model.downloads) }} downloads</span>
-            </article>
-          </div>
-        </section>
-
-        <section>
-          <h3>相關研究方向</h3>
-          <div class="research-list">
-            <a
-              v-for="direction in projectAdvice.research_directions"
-              :key="direction.url || direction.title"
-              :href="direction.url"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <strong>{{ direction.title }}</strong>
-              <span>{{ direction.why_relevant }}</span>
-            </a>
-          </div>
-        </section>
-
-        <section>
+        <section v-if="projectAdvice.sources?.length">
           <h3>資料來源</h3>
           <div class="source-list">
             <a

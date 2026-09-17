@@ -21,31 +21,43 @@ def get_client():
 
 
 def web_research(query, allowed_domains=None):
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("query is required")
+
     tool = {"type": "web_search"}
     if allowed_domains:
-        tool["filters"] = {"allowed_domains": allowed_domains}
+        domains = [str(domain).strip() for domain in allowed_domains if str(domain).strip()]
+        if domains:
+            tool["filters"] = {"allowed_domains": domains[:20]}
 
     response = get_client().responses.create(
         model=WEB_SEARCH_MODEL,
         tools=[tool],
         include=["web_search_call.action.sources"],
         input=(
-            "請搜尋以下主題，整理可用於 AI/軟體專案規劃的背景資料。"
-            "請優先找官方文件、GitHub、論文、產品頁或可信技術文章。"
-            f"\n\n主題：{query}"
+            "你是技術研究 Agent 的網路搜尋工具。請直接搜尋指定查詢，整理具體事實、"
+            "可用資源、限制與重要差異。優先採用官方文件、原始專案、論文、產品頁或"
+            "可信技術資料；不要臆測不存在的名稱、功能或網址。"
+            f"\n\n搜尋查詢：{query}"
         ),
     )
 
     sources = []
+    seen_urls = set()
     for item in getattr(response, "output", []) or []:
         if getattr(item, "type", "") != "web_search_call":
             continue
         action = getattr(item, "action", None)
         for source in getattr(action, "sources", []) or []:
+            url = getattr(source, "url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
             sources.append(
                 {
-                    "title": getattr(source, "title", "") or getattr(source, "url", ""),
-                    "url": getattr(source, "url", ""),
+                    "title": getattr(source, "title", "") or url,
+                    "url": url,
                 }
             )
 

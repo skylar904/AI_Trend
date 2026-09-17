@@ -247,7 +247,7 @@ def get_huggingface_top(limit: Annotated[int, Query(ge=1, le=25)] = 10):
 
 
 @app.get("/api/project-advisor")
-def get_project_advice(q: Annotated[str, Query(min_length=2, max_length=300)]):
+def get_project_advice(q: Annotated[str, Query(min_length=2, max_length=1000)]):
     try:
         return advise_project(q)
     except Exception as error:
