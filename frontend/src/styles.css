@@ -749,6 +749,40 @@ summary {
   padding: 7px 10px;
 }
 
+.category-filter-list {
+  display: grid;
+  gap: 8px;
+}
+
+.category-filter-list .chip {
+  width: 100%;
+  min-height: 40px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.category-filter-list .chip-label {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.category-filter-list .chip-count {
+  display: inline-flex;
+  min-width: 30px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: var(--muted-strong);
+  background: var(--surface-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .chip:hover {
   border-color: var(--accent);
   color: var(--accent-strong);
@@ -763,6 +797,11 @@ summary {
   border-color: rgba(15, 143, 124, 0.34);
   color: var(--accent-strong);
   background: var(--accent-soft);
+}
+
+.category-filter-list .chip.active .chip-count {
+  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .notice {

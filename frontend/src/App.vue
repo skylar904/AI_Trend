@@ -19,6 +19,7 @@ const stats = ref({
 });
 const articleDates = ref([]);
 const articles = ref([]);
+const dateArticles = ref([]);
 const recentFocusTopics = ref([]);
 const todayTopics = ref([]);
 const githubTop = ref([]);
@@ -57,6 +58,32 @@ const newerDate = computed(() => {
 const selectedDateCount = computed(() => {
   const selected = articleDates.value.find((item) => item.date === selectedDate.value);
   return selected?.count || articles.value.length;
+});
+const dateSources = computed(() => {
+  const counts = new Map();
+  for (const article of dateArticles.value) {
+    const source = String(article.source || "").trim();
+    if (!source) continue;
+    counts.set(source, (counts.get(source) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([source, count]) => ({ source, count }))
+    .sort((left, right) => left.source.localeCompare(right.source, "zh-Hant"));
+});
+const categoryScopeArticles = computed(() => {
+  if (!filters.source) return dateArticles.value;
+  return dateArticles.value.filter((article) => article.source === filters.source);
+});
+const dateCategories = computed(() => {
+  const counts = new Map();
+  for (const article of categoryScopeArticles.value) {
+    const category = String(article.category || "").trim();
+    if (!category) continue;
+    counts.set(category, (counts.get(category) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((left, right) => left.category.localeCompare(right.category, "zh-Hant"));
 });
 
 function plainPreview(text) {
@@ -122,6 +149,28 @@ async function loadArticleDates() {
   const stillAvailable = articleDates.value.some((item) => item.date === selectedDate.value);
   if (!selectedDate.value || !stillAvailable) {
     selectedDate.value = articleDates.value[0].date;
+  }
+}
+
+async function loadDateArticles() {
+  if (!selectedDate.value) {
+    dateArticles.value = [];
+    return;
+  }
+
+  try {
+    dateArticles.value = await getArticles({ date: selectedDate.value });
+    if (filters.source && !dateSources.value.some((item) => item.source === filters.source)) {
+      filters.source = "";
+    }
+    if (
+      filters.category
+      && !dateCategories.value.some((item) => item.category === filters.category)
+    ) {
+      filters.category = "";
+    }
+  } catch (err) {
+    dateArticles.value = [];
   }
 }
 
@@ -220,6 +269,8 @@ watch(
   () => loadArticles()
 );
 
+watch(selectedDate, () => loadDateArticles());
+
 watch(
   () => filters.query,
   () => {
@@ -233,6 +284,7 @@ onMounted(async () => {
   await loadTopicRankings();
   await loadPlatformRankings();
   await loadArticleDates();
+  await loadDateArticles();
   await loadArticles();
 });
 </script>
@@ -242,7 +294,7 @@ onMounted(async () => {
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">AI Trend Desk</p>
-        <h1>AI趨勢整平台</h1>
+        <h1>AI趨勢追蹤</h1>
       </div>
       <div class="hero-status">
         <span>已收錄 {{ stats.total }} 篇</span>
@@ -269,11 +321,11 @@ onMounted(async () => {
         </div>
     </section>
 
-    <section class="project-advisor" aria-label="技術資源探索">
+    <section class="project-advisor" aria-label="資源探索">
       <div class="panel-heading advisor-heading">
         <div>
           <p class="eyebrow">Research Agent</p>
-          <h2>技術資源探索</h2>
+          <h2>資源探索</h2>
         </div>
         <span>自主搜尋與來源驗證</span>
       </div>
@@ -514,8 +566,8 @@ onMounted(async () => {
         <div class="filter-section">
           <p>來源</p>
           <select v-model="filters.source" class="filter-select" aria-label="選擇文章來源">
-            <option value="">全部來源</option>
-            <option v-for="source in stats.sources" :key="source.source" :value="source.source">
+            <option value="">全部來源 / {{ dateArticles.length }} 篇</option>
+            <option v-for="source in dateSources" :key="source.source" :value="source.source">
               {{ source.source }} / {{ source.count }} 篇
             </option>
           </select>
@@ -523,24 +575,28 @@ onMounted(async () => {
 
         <div class="filter-section">
           <p>分類</p>
-          <button
-            class="chip"
-            :class="{ active: !filters.category }"
-            type="button"
-            @click="filters.category = ''"
-          >
-            全部
-          </button>
-          <button
-            v-for="category in stats.categories"
-            :key="category.category"
-            class="chip"
-            :class="{ active: filters.category === category.category }"
-            type="button"
-            @click="setCategory(category.category)"
-          >
-            {{ category.category }} <span>{{ category.count }}</span>
-          </button>
+          <div class="category-filter-list">
+            <button
+              class="chip"
+              :class="{ active: !filters.category }"
+              type="button"
+              @click="filters.category = ''"
+            >
+              <span class="chip-label">全部</span>
+              <span class="chip-count">{{ categoryScopeArticles.length }}</span>
+            </button>
+            <button
+              v-for="category in dateCategories"
+              :key="category.category"
+              class="chip"
+              :class="{ active: filters.category === category.category }"
+              type="button"
+              @click="setCategory(category.category)"
+            >
+              <span class="chip-label">{{ category.category }}</span>
+              <span class="chip-count">{{ category.count }}</span>
+            </button>
+          </div>
         </div>
       </aside>
 
