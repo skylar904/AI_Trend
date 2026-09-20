@@ -7,8 +7,10 @@ from api_collectors import collect_api_candidates, rss_replacements_for
 from cleaning import clean_article, dedupe_articles, is_probably_ai_related
 from rss_sources import RSS_FEEDS
 from database import (
+    get_articles_by_date,
+    get_candidate_processing_status,
     init_db,
-    is_article_exists_by_identity,
+    record_candidate_processing,
     save_pending_article,
     save_article,
     save_platform_items,
@@ -174,12 +176,19 @@ def main():
         if not link:
             continue
 
-        if is_article_exists_by_identity(link, fingerprint):
-            print(f"已存在，跳過：{article['title']}")
+        processing_status = get_candidate_processing_status(link, fingerprint)
+        if processing_status:
+            print(f"已處理（{processing_status}），跳過：{article['title']}")
             continue
 
         if not is_probably_ai_related(article):
             print(f"低相關候選，略過：{article['title']}")
+            if not args.dry_run:
+                record_candidate_processing(
+                    article,
+                    "filtered",
+                    "Local keyword filter determined that the candidate was not AI-related.",
+                )
             continue
 
         print(f"\n分析新文章：{article['title']}")
@@ -190,6 +199,7 @@ def main():
             pending_count += 1
             if not args.dry_run:
                 save_pending_article(article, error)
+                record_candidate_processing(article, "pending", error)
             continue
 
         if (
@@ -197,6 +207,12 @@ def main():
             or analysis.get("relevance_score", 0) < MIN_RELEVANCE_SCORE
         ):
             print(f"AI 判斷略過：{analysis.get('reason', article['title'])}")
+            if not args.dry_run:
+                record_candidate_processing(
+                    article,
+                    "rejected",
+                    analysis.get("reason", "AI analysis rejected the candidate."),
+                )
             continue
 
         article["category"] = analysis["category"]
@@ -216,7 +232,18 @@ def main():
             article_id = save_article(article)
             if article_id:
                 article["id"] = article_id
+                record_candidate_processing(
+                    article,
+                    "accepted",
+                    analysis.get("reason", ""),
+                    article_id,
+                )
             else:
+                record_candidate_processing(
+                    article,
+                    "accepted",
+                    "Article already existed when the save was attempted.",
+                )
                 print(f"資料庫已存在或寫入失敗，略過話題統計：{article['title']}")
                 continue
 
@@ -242,8 +269,9 @@ def main():
         print("Dry run 完成，未寫入資料庫。")
 
     topic_date = datetime.now().strftime("%Y-%m-%d")
+    topic_articles = all_new_articles if args.dry_run else get_articles_by_date(topic_date)
     try:
-        topics = update_topic_rankings(all_new_articles, topic_date=topic_date, dry_run=args.dry_run)
+        topics = update_topic_rankings(topic_articles, topic_date=topic_date, dry_run=args.dry_run)
     except Exception as error:
         print(f"本日話題更新失敗，但文章已保留在資料庫：{error}")
         print(

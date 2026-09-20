@@ -24,7 +24,8 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 GEMINI_SERVICE_UNAVAILABLE_MESSAGE = "API token不足，服務無法使用"
 MAX_AGENT_ROUNDS = 10
 MAX_TOOL_RESULTS = 15
-MAX_FINAL_RESULTS = 6
+MIN_FINAL_RESULTS = 6
+MAX_FINAL_RESULTS = 10
 README_LIMIT = 6000
 FILE_CONTENT_LIMIT = 10000
 PAPER_CONTENT_LIMIT = 24000
@@ -1555,6 +1556,7 @@ def gemini_consultant_prompt(query):
 }}
 
 source_type 可使用：github、huggingface_model、huggingface_dataset、paper、web。
+請盡量提供 {MIN_FINAL_RESULTS} 到 {MAX_FINAL_RESULTS} 個互不重複且可查證的結果；只有確實找不到足夠合格來源時，才可少於 {MIN_FINAL_RESULTS} 個。
 最多 4 個 sections，每個 section 最多 4 個 items。
 """.strip()
 
@@ -1594,7 +1596,7 @@ def extract_gemini_grounding_sources(response_data):
                     "source_type": source_type_from_url(url),
                 }
             )
-    return sources[:8]
+    return sources[:MAX_FINAL_RESULTS]
 
 
 def source_type_from_url(url):
@@ -1626,6 +1628,7 @@ def normalize_gemini_advice(raw_data, fallback_text="", grounding_sources=None):
     answer = visible_advice_text(data.get("answer") or fallback_text, 1800)
     sections = []
     total_items = 0
+    seen_urls = set()
 
     for raw_section in data.get("sections", [])[:4]:
         if not isinstance(raw_section, dict):
@@ -1635,6 +1638,9 @@ def normalize_gemini_advice(raw_data, fallback_text="", grounding_sources=None):
             if not isinstance(raw_item, dict) or total_items >= MAX_FINAL_RESULTS:
                 continue
             url = str(raw_item.get("url") or "").strip()
+            normalized_url = url.rstrip("/")
+            if normalized_url and normalized_url in seen_urls:
+                continue
             source_type = str(raw_item.get("source_type") or "").strip()
             if not source_type:
                 source_type = source_type_from_url(url)
@@ -1652,6 +1658,8 @@ def normalize_gemini_advice(raw_data, fallback_text="", grounding_sources=None):
                     "source_type": source_type,
                 }
             )
+            if normalized_url:
+                seen_urls.add(normalized_url)
             total_items += 1
         if items:
             sections.append(
@@ -1662,12 +1670,24 @@ def normalize_gemini_advice(raw_data, fallback_text="", grounding_sources=None):
                 }
             )
 
-    if not sections and grounding_sources:
+    supplemental_sources = []
+    for source in grounding_sources:
+        if total_items >= MAX_FINAL_RESULTS:
+            break
+        url = str(source.get("url") or "").strip()
+        normalized_url = url.rstrip("/")
+        if not normalized_url or normalized_url in seen_urls:
+            continue
+        supplemental_sources.append(source)
+        seen_urls.add(normalized_url)
+        total_items += 1
+
+    if supplemental_sources:
         sections.append(
             {
-                "title": "參考來源",
-                "summary": "以下是 Gemini Google Search grounding 回傳的查證來源。",
-                "items": grounding_sources[:MAX_FINAL_RESULTS],
+                "title": "搜尋查證來源",
+                "summary": "以下是 Gemini Google Search grounding 回傳、且未與上述推薦重複的補充來源。這些來源用於查證，不一定都是可直接使用的模型、套件或 Skill。",
+                "items": supplemental_sources,
             }
         )
 

@@ -392,6 +392,20 @@ def init_db():
         )
     """)
 
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS processed_candidates (
+            id {integer_pk_type()},
+            fingerprint {text_type("fingerprint")} NOT NULL UNIQUE,
+            link {text_type("link")},
+            title {text_type("title")},
+            status {text_type("status")} NOT NULL,
+            reason {text_type("reason")},
+            article_id INTEGER DEFAULT 0,
+            first_processed_at {text_type("first_processed_at")},
+            last_processed_at {text_type("last_processed_at")}
+        )
+    """)
+
     # Keep older local databases compatible as the project evolves.
     columns = get_table_columns(conn, "articles")
 
@@ -434,6 +448,12 @@ def init_db():
         "pending_articles",
         "status, updated_at",
     )
+    create_index_if_not_exists(
+        conn,
+        "idx_processed_candidates_status",
+        "processed_candidates",
+        "status",
+    )
 
     conn.commit()
     conn.close()
@@ -470,6 +490,109 @@ def is_article_exists_by_identity(link, fingerprint):
     conn.close()
 
     return result is not None
+
+
+def get_candidate_processing_status(link, fingerprint):
+    if not link and not fingerprint:
+        return None
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    identity_params = (link or "", fingerprint or "", fingerprint or "")
+
+    article = cursor.execute(
+        """
+        SELECT id FROM articles
+        WHERE link = ? OR (? <> '' AND fingerprint = ?)
+        LIMIT 1
+        """,
+        identity_params,
+    ).fetchone()
+    if article:
+        conn.close()
+        return "accepted"
+
+    processed = cursor.execute(
+        """
+        SELECT status FROM processed_candidates
+        WHERE fingerprint = ? OR (? <> '' AND link = ?)
+        LIMIT 1
+        """,
+        (fingerprint or "", link or "", link or ""),
+    ).fetchone()
+    if processed:
+        conn.close()
+        return processed["status"] or "processed"
+
+    pending = cursor.execute(
+        """
+        SELECT status FROM pending_articles
+        WHERE link = ? OR (? <> '' AND fingerprint = ?)
+        LIMIT 1
+        """,
+        identity_params,
+    ).fetchone()
+    conn.close()
+    if pending:
+        return pending["status"] or "pending"
+    return None
+
+
+def record_candidate_processing(article, status, reason="", article_id=0):
+    fingerprint = str(article.get("fingerprint") or "").strip()
+    if not fingerprint:
+        return None
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    values = (
+        fingerprint,
+        article.get("link", ""),
+        article.get("title", ""),
+        str(status or "processed"),
+        str(reason or ""),
+        int(article_id or 0),
+        now,
+        now,
+    )
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    if USE_MYSQL:
+        sql = """
+            INSERT INTO processed_candidates (
+                fingerprint, link, title, status, reason, article_id,
+                first_processed_at, last_processed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                link = VALUES(link),
+                title = VALUES(title),
+                status = VALUES(status),
+                reason = VALUES(reason),
+                article_id = VALUES(article_id),
+                last_processed_at = VALUES(last_processed_at)
+        """
+    else:
+        sql = """
+            INSERT INTO processed_candidates (
+                fingerprint, link, title, status, reason, article_id,
+                first_processed_at, last_processed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(fingerprint) DO UPDATE SET
+                link = excluded.link,
+                title = excluded.title,
+                status = excluded.status,
+                reason = excluded.reason,
+                article_id = excluded.article_id,
+                last_processed_at = excluded.last_processed_at
+        """
+
+    cursor.execute(sql, values)
+    conn.commit()
+    processed_id = cursor.lastrowid
+    conn.close()
+    return processed_id
 
 
 def save_article(article):

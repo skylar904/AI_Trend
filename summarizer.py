@@ -4,7 +4,6 @@ import re
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from cleaning import is_probably_ai_related
 from trend_config import CATEGORIES
 
 load_dotenv()
@@ -104,56 +103,46 @@ def extract_json(text):
     return json.loads(raw)
 
 
-def clamp_score(value):
+def validated_score(data, key):
+    value = data.get(key)
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be a number between 0 and 100")
+
     try:
         number = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(100, number))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{key} must be a number between 0 and 100") from error
+
+    if not 0 <= number <= 100:
+        raise ValueError(f"{key} must be between 0 and 100")
+    return number
 
 
-def is_retryable_openai_error(error):
-    error_name = error.__class__.__name__.lower()
-    message = str(error).lower()
-    retryable_names = {
-        "authenticationerror",
-        "permissiondeniederror",
-        "ratelimiterror",
-        "apierror",
-        "apiconnectionerror",
-        "apitimestouterror",
-    }
-    retryable_terms = [
-        "openai_api_key",
-        "api key",
-        "authentication",
-        "permission",
-        "quota",
-        "billing",
-        "credit",
-        "rate limit",
-        "rate_limit",
-        "429",
-        "401",
-        "403",
-        "timeout",
-        "connection",
-    ]
-    return error_name in retryable_names or any(term in message for term in retryable_terms)
+def validate_analysis(data):
+    if not isinstance(data, dict):
+        raise ValueError("OpenAI analysis must be a JSON object")
 
+    should_include = data.get("should_include")
+    if not isinstance(should_include, bool):
+        raise ValueError("should_include must be a boolean")
 
-def fallback_analysis(article, error=None):
-    related = is_probably_ai_related(article)
-    summary = article.get("summary") or "暫時使用 RSS 原始摘要，待下一次巡邏重新產生 AI 摘要。"
-    reason = "OpenAI 分析失敗，已使用關鍵字規則保守判斷。"
-    if error:
-        reason = f"{reason} 錯誤：{error}"
+    category = str(data.get("category") or "").strip()
+    if category not in CATEGORIES:
+        raise ValueError(f"invalid category: {category or '(empty)'}")
+
+    reason = str(data.get("reason") or "").strip()
+    if not reason:
+        raise ValueError("reason is required")
+
+    summary = str(data.get("summary") or "").strip()
+    if should_include and not summary:
+        raise ValueError("summary is required when should_include is true")
 
     return {
-        "should_include": related,
-        "category": article.get("category") or "其他AI趨勢",
-        "relevance_score": 70 if related else 20,
-        "importance_score": 45 if related else 10,
+        "should_include": should_include,
+        "category": category,
+        "relevance_score": validated_score(data, "relevance_score"),
+        "importance_score": validated_score(data, "importance_score"),
         "reason": reason,
         "summary": summary,
     }
@@ -242,23 +231,10 @@ RSS 原始摘要：
             input=prompt,
         )
         data = extract_json(response.output_text)
+        return validate_analysis(data)
     except Exception as error:
-        if is_retryable_openai_error(error):
-            raise OpenAIAnalysisRetryableError(str(error)) from error
-        return fallback_analysis(article, error)
-
-    category_value = data.get("category") or "其他AI趨勢"
-    if category_value not in CATEGORIES:
-        category_value = "其他AI趨勢"
-
-    return {
-        "should_include": bool(data.get("should_include")),
-        "category": category_value,
-        "relevance_score": clamp_score(data.get("relevance_score")),
-        "importance_score": clamp_score(data.get("importance_score")),
-        "reason": str(data.get("reason") or "").strip(),
-        "summary": str(data.get("summary") or "").strip(),
-    }
+        error_message = f"{error.__class__.__name__}: {error}"
+        raise OpenAIAnalysisRetryableError(error_message) from error
 
 
 def summarize_article(article):
