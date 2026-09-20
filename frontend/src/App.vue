@@ -347,8 +347,7 @@ onMounted(async () => {
               <div>
                 <h3>{{ topic.term }}</h3>
                 <p>
-                  {{ topic.mention_count }} 次提及 / {{ topic.article_count }} 篇文章 /
-                  {{ topic.source_count }} 個來源
+                  {{ topic.source_count }} 個來源 / {{ topic.article_count }} 篇文章
                 </p>
               </div>
               <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
@@ -380,7 +379,6 @@ onMounted(async () => {
           <div class="emerging-main">
             <h3>{{ topic.term }}</h3>
             <div class="emerging-metrics">
-              <span>{{ topic.mention_count }} 次提及</span>
               <span>{{ topic.source_count }} 個來源</span>
               <span>{{ topic.article_count }} 篇文章</span>
             </div>

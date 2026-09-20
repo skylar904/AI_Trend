@@ -54,6 +54,27 @@ AGENT_INSTRUCTIONS = """
 """.strip()
 
 
+PLANNER_INSTRUCTIONS = """
+你是一個技術資源需求理解器。你的任務是把使用者自然語言需求轉成可執行的搜尋計畫。
+
+請判斷使用者真正想解決什麼問題，以及最可能需要哪幾種技術資源。
+
+可選資源類型：
+- github：GitHub repository、Codex Skill、plugin、SDK、library、framework、可直接參考或安裝的開源專案。
+- huggingface_model：Hugging Face model，適合模型、辨識、生成、embedding、分類、推論等需求。
+- huggingface_dataset：Hugging Face dataset，適合資料集、訓練資料、benchmark data 等需求。
+- paper：學術論文，適合研究方法、演算法、benchmark、實驗設計、文獻探討等需求。
+
+規則：
+- 使用者明確指定 skill、plugin、Codex、coding agent、前端開發、UI/UX 或設計流程時，通常優先考慮 github。
+- 使用者只描述專題或問題、沒有指定資源類型時，選 1 到 3 種最有幫助的資源類型，不要全部都選。
+- search_queries 要使用適合 GitHub、Hugging Face 或論文搜尋的英文技術詞，不要只原封不動翻譯中文。
+- 如果使用者提到 Codex Skill，GitHub 搜尋 query 應該包含 SKILL.md 或 Codex skill。
+- 不要編造具體不存在的 repo、model、dataset 或論文名稱；只規劃搜尋方向。
+- 輸出 JSON，不要 Markdown。
+""".strip()
+
+
 FINAL_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -96,6 +117,42 @@ FINAL_SCHEMA = {
                     },
                 },
             },
+        },
+    },
+}
+
+
+RESEARCH_PLAN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["intent_summary", "resource_types", "search_queries", "priority_terms"],
+    "properties": {
+        "intent_summary": {"type": "string"},
+        "resource_types": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["github", "huggingface_model", "huggingface_dataset", "paper"],
+            },
+        },
+        "search_queries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["source_kind", "query"],
+                "properties": {
+                    "source_kind": {
+                        "type": "string",
+                        "enum": ["github", "huggingface", "paper"],
+                    },
+                    "query": {"type": "string"},
+                },
+            },
+        },
+        "priority_terms": {
+            "type": "array",
+            "items": {"type": "string"},
         },
     },
 }
@@ -1213,6 +1270,99 @@ def create_agent_response(**kwargs):
     )
 
 
+def normalize_research_plan(data):
+    allowed_types = {"github", "huggingface_model", "huggingface_dataset", "paper"}
+    allowed_source_kinds = {"github", "huggingface", "paper"}
+    raw = data if isinstance(data, dict) else {}
+
+    resource_types = []
+    for resource_type in raw.get("resource_types", []):
+        resource_type = str(resource_type or "").strip()
+        if resource_type in allowed_types and resource_type not in resource_types:
+            resource_types.append(resource_type)
+
+    search_queries = []
+    seen_queries = set()
+    for item in raw.get("search_queries", []):
+        if not isinstance(item, dict):
+            continue
+        source_kind = str(item.get("source_kind") or "").strip()
+        query = normalize_text_for_plan(item.get("query"))
+        key = (source_kind, query.lower())
+        if source_kind not in allowed_source_kinds or not query or key in seen_queries:
+            continue
+        seen_queries.add(key)
+        search_queries.append({"source_kind": source_kind, "query": query})
+        if len(search_queries) >= 8:
+            break
+
+    priority_terms = []
+    for term in raw.get("priority_terms", []):
+        term = normalize_text_for_plan(term)
+        if term and term not in priority_terms:
+            priority_terms.append(term)
+        if len(priority_terms) >= 12:
+            break
+
+    return {
+        "intent_summary": normalize_text_for_plan(raw.get("intent_summary", "")),
+        "resource_types": resource_types,
+        "search_queries": search_queries,
+        "priority_terms": priority_terms,
+    }
+
+
+def normalize_text_for_plan(value, limit=500):
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+
+def fallback_research_plan(query, required_types=None):
+    required_types = list(required_types or [])
+    search_queries = []
+    if not required_types or "github" in required_types:
+        search_queries.append({"source_kind": "github", "query": f"{query} GitHub"})
+    if "huggingface_model" in required_types or "huggingface_dataset" in required_types:
+        search_queries.append({"source_kind": "huggingface", "query": str(query)})
+    if "paper" in required_types:
+        search_queries.append({"source_kind": "paper", "query": str(query)})
+    return {
+        "intent_summary": normalize_text_for_plan(query),
+        "resource_types": required_types,
+        "search_queries": search_queries[:4],
+        "priority_terms": [],
+    }
+
+
+def plan_research_query(query, explicit_types=None):
+    try:
+        response = get_client().responses.create(
+            model=MODEL,
+            instructions=PLANNER_INSTRUCTIONS,
+            input=query,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "research_intent_plan",
+                    "strict": True,
+                    "schema": RESEARCH_PLAN_SCHEMA,
+                }
+            },
+        )
+        return normalize_research_plan(extract_json(response.output_text))
+    except Exception:
+        return fallback_research_plan(query, explicit_types)
+
+
+def build_agent_input(query, plan):
+    return (
+        "原始使用者需求：\n"
+        f"{query}\n\n"
+        "需求理解器已先把自然語言整理成搜尋計畫。請優先依照這份計畫搜尋與 inspect，"
+        "但如果搜尋結果不足，可以根據原始需求補充合理查詢。最終仍只能推薦已完成 inspect 的有效來源。\n\n"
+        f"{json.dumps(plan, ensure_ascii=False)}"
+    )
+
+
 def explicit_required_types(query):
     lowered = str(query or "").lower()
     if "skill" in lowered:
@@ -1355,8 +1505,11 @@ def advise_project(user_query):
         raise ValueError("query is required")
 
     registry = SourceRegistry()
-    required_types = explicit_required_types(query)
-    response = create_agent_response(input=query)
+    explicit_types = explicit_required_types(query)
+    plan = plan_research_query(query, explicit_types)
+    planned_types = set(plan.get("resource_types") or [])
+    required_types = explicit_types or planned_types
+    response = create_agent_response(input=build_agent_input(query, plan))
 
     for _ in range(MAX_AGENT_ROUNDS):
         calls = [item for item in (response.output or []) if getattr(item, "type", "") == "function_call"]

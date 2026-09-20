@@ -892,7 +892,7 @@ def get_daily_topics(topic_date=None, limit=5):
                created_at, updated_at
         FROM daily_topics
         WHERE topic_date = ?
-        ORDER BY topic_score DESC, mention_count DESC, article_count DESC, term
+        ORDER BY topic_score DESC, source_count DESC, article_count DESC, term
         LIMIT ?
         """,
         (topic_date, limit),
@@ -911,7 +911,7 @@ def get_topic_stats(limit=5):
                active_days, trend_score_sum, topic_score, first_seen_at,
                last_seen_at, evidence_articles, created_at, updated_at
         FROM topic_stats
-        ORDER BY topic_score DESC, total_mentions DESC, active_days DESC, term
+        ORDER BY topic_score DESC, total_source_count DESC, total_article_count DESC, active_days DESC, term
         LIMIT ?
         """,
         (limit,),

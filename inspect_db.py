@@ -113,8 +113,7 @@ def main():
         for index, row in enumerate(recent_focus_topics, start=1):
             print(
                 f"{index}. [{row['topic_score']}] {safe_text(row['term'])} "
-                f"(提及 {row['mention_count']} / 文章 {row['article_count']} / "
-                f"來源 {row['source_count']})"
+                f"(來源 {row['source_count']} / 文章 {row['article_count']})"
             )
     else:
         print("- 尚無資料")
@@ -124,8 +123,7 @@ def main():
         for index, row in enumerate(today_topics, start=1):
             print(
                 f"{index}. [{row['topic_score']}] {safe_text(row['term'])} "
-                f"(提及 {row['mention_count']} / 文章 {row['article_count']} / "
-                f"來源 {row['source_count']})"
+                f"(來源 {row['source_count']} / 文章 {row['article_count']})"
             )
     else:
         print("- 尚無資料")

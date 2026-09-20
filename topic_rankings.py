@@ -77,7 +77,7 @@ def build_topic_prompt(articles, topic_limit=BATCH_TOPIC_CANDIDATES):
 - 優先選具體話題：模型、產品、功能、事件、研究方法、開源專案、工具、政策或產業事件。
 - 大品牌或泛稱可以作為脈絡，但不要只輸出 OpenAI、Google、ChatGPT、AI、LLM 這種沒有細節的詞，除非今天文章真的沒有更具體主題。
 - 可以合併同義詞或大小寫變體，例如 GPT6 Astra / GPT-6 Astra 可合併。
-- 不要輸出 mention_count、article_count、source_count，這些統計數字會由 Python 根據 evidence_articles 計算。
+- 不要輸出 article_count、source_count 或 topic_score，這些統計數字會由 Python 根據 evidence_articles 計算。
 - evidence_articles 的 id 必須來自「這批今天新增文章」中的 id，不要使用不存在的文章 id。
 - reason 用一句繁體中文說明為什麼這個話題今天值得注意。
 - evidence_articles 放入支持這個話題的文章，最多 5 篇。
@@ -125,36 +125,15 @@ def topic_key(term):
     return normalize_text(normalized).replace(" ", "")
 
 
-def count_topic_mentions(term, evidence_articles):
-    variants = topic_variants(term)
-    if not variants:
-        return len(evidence_articles)
-
-    total = 0
-    for article in evidence_articles:
-        text = normalize_text(
-            " ".join(
-                [
-                    article.get("title", ""),
-                    article.get("summary", ""),
-                    article.get("evidence", ""),
-                ]
-            )
-        ).lower()
-        hits = sum(text.count(variant) for variant in variants)
-        total += hits or 1
-    return total
-
-
 def calculate_topic_score(term, evidence_articles):
     article_count = len(evidence_articles)
     source_count = len(
         {article.get("source") for article in evidence_articles if article.get("source")}
     )
-    mention_count = count_topic_mentions(term, evidence_articles)
+    mention_count = 0
     trend_score_sum = sum(clamp_float(article.get("trend_score")) for article in evidence_articles)
     topic_score = round(
-        mention_count * 10 + article_count * 4 + source_count * 3 + trend_score_sum * 0.1,
+        source_count * 10 + article_count * 8 + trend_score_sum * 0.08,
         2,
     )
     return mention_count, article_count, source_count, round(trend_score_sum, 2), topic_score
@@ -232,9 +211,8 @@ def normalize_ai_topics(data, article_lookup=None, limit=FINAL_TOPIC_LIMIT):
     normalized.sort(
         key=lambda item: (
             item["topic_score"],
-            item["mention_count"],
-            item["article_count"],
             item["source_count"],
+            item["article_count"],
         ),
         reverse=True,
     )
@@ -384,9 +362,8 @@ def merge_topic_candidates(candidates, article_lookup):
     merged.sort(
         key=lambda item: (
             item["topic_score"],
-            item["mention_count"],
-            item["article_count"],
             item["source_count"],
+            item["article_count"],
         ),
         reverse=True,
     )
