@@ -27,3 +27,4 @@ report_assets/
 ppt_assets/
 reports/*.md
 *.txt
+!requirements.txt

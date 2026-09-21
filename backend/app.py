@@ -200,40 +200,14 @@ def get_article(article_id: int):
     return article
 
 
-@app.get("/api/trends/top")
-def get_top_trends(limit: Annotated[int, Query(ge=1, le=50)] = 10):
-    with connect_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, title, link, source, category, published, created_at,
-                   relevance_score, importance_score, trend_score,
-                   trend_reason, trend_components,
-                   substr(COALESCE(ai_summary, summary, ''), 1, 220) AS preview
-            FROM articles
-            ORDER BY trend_score DESC, created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        articles = [row_to_dict(row) for row in rows]
-        articles = attach_article_metadata(conn, articles)
-
-    return articles
-
-
-@app.get("/api/dashboard/weekly-topics")
-def get_weekly_topics(limit: Annotated[int, Query(ge=1, le=10)] = 5):
-    return get_topic_rankings(scope="recent", limit=limit, days=7)
-
-
 @app.get("/api/dashboard/topic-rankings")
 def get_dashboard_topic_rankings(
     scope: Annotated[str, Query()] = "all",
     limit: Annotated[int, Query(ge=1, le=10)] = 5,
 ):
-    if scope not in {"all", "today", "recent"}:
-        raise HTTPException(status_code=400, detail="scope must be all, today, or recent")
-    return get_topic_rankings(scope=scope, limit=limit, days=7)
+    if scope not in {"all", "today"}:
+        raise HTTPException(status_code=400, detail="scope must be all or today")
+    return get_topic_rankings(scope=scope, limit=limit)
 
 
 @app.get("/api/platform/github/top")

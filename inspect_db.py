@@ -1,5 +1,4 @@
 import sys
-from datetime import datetime, timedelta
 
 from database import connect_db, db_label, init_db
 from topic_rankings import get_topic_rankings
@@ -17,7 +16,6 @@ def fetch_all(cursor, sql, values=()):
 
 def main():
     init_db()
-    since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
 
     with connect_db() as conn:
         cursor = conn.cursor()

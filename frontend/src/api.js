@@ -30,10 +30,6 @@ export function getArticle(id) {
   return request(`/api/articles/${id}`);
 }
 
-export function getTopTrends(limit = 10) {
-  return request(`/api/trends/top?limit=${limit}`);
-}
-
 export function getTopicRankings(scope = "all", limit = 5) {
   const params = new URLSearchParams({ scope, limit: String(limit) });
   return request(`/api/dashboard/topic-rankings?${params.toString()}`);

@@ -465,7 +465,16 @@ def collect_api_candidates():
             print(f"API 來源讀取失敗，略過 {source['name']}：{error}")
             continue
 
-        candidates.extend(articles)
+        valid_articles = [
+            article
+            for article in (articles or [])
+            if article.get("title") and article.get("link")
+        ]
+        if not valid_articles:
+            print(f"API 來源沒有取得有效文章，保留 RSS fallback：{source['name']}")
+            continue
+
+        candidates.extend(valid_articles)
         successful_sources.add(source["key"])
 
     return dedupe_articles(candidates), successful_sources

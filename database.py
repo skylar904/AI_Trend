@@ -5,6 +5,8 @@ import json
 
 from dotenv import load_dotenv
 
+from cleaning import normalize_topic_key
+
 load_dotenv()
 
 DB_TYPE = os.getenv("DB_TYPE", "sqlite").strip().lower()
@@ -61,6 +63,14 @@ PENDING_ARTICLE_COLUMNS = {
     "completed_article_id": "INTEGER DEFAULT 0",
     "created_at": "TEXT",
     "updated_at": "TEXT",
+}
+
+DAILY_TOPIC_COLUMNS = {
+    "source_names": "TEXT",
+}
+
+TOPIC_STATS_COLUMNS = {
+    "source_names": "TEXT",
 }
 
 
@@ -238,11 +248,8 @@ def text_type(column):
         "url": "VARCHAR(512)",
         "primary_metric_name": "VARCHAR(64)",
         "secondary_metric_name": "VARCHAR(64)",
-        "week_start": "VARCHAR(32)",
-        "week_end": "VARCHAR(32)",
         "term": "VARCHAR(191)",
         "topic_date": "VARCHAR(32)",
-        "query": "VARCHAR(512)",
         "created_at": "VARCHAR(32)",
         "updated_at": "VARCHAR(32)",
         "fetched_at": "VARCHAR(32)",
@@ -344,6 +351,7 @@ def init_db():
             topic_score REAL DEFAULT 0,
             reason {text_type("reason")},
             evidence_articles {text_type("evidence_articles")},
+            source_names {text_type("source_names")},
             created_at {text_type("created_at")},
             updated_at {text_type("updated_at")},
             UNIQUE(topic_date, term)
@@ -363,6 +371,7 @@ def init_db():
             first_seen_at {text_type("first_seen_at")},
             last_seen_at {text_type("last_seen_at")},
             evidence_articles {text_type("evidence_articles")},
+            source_names {text_type("source_names")},
             created_at {text_type("created_at")},
             updated_at {text_type("updated_at")}
         )
@@ -426,6 +435,16 @@ def init_db():
         if column not in pending_article_columns:
             cursor.execute(f"ALTER TABLE pending_articles ADD COLUMN {column} {db_column_type(column, column_type)}")
 
+    daily_topic_columns = get_table_columns(conn, "daily_topics")
+    for column, column_type in DAILY_TOPIC_COLUMNS.items():
+        if column not in daily_topic_columns:
+            cursor.execute(f"ALTER TABLE daily_topics ADD COLUMN {column} {db_column_type(column, column_type)}")
+
+    topic_stats_columns = get_table_columns(conn, "topic_stats")
+    for column, column_type in TOPIC_STATS_COLUMNS.items():
+        if column not in topic_stats_columns:
+            cursor.execute(f"ALTER TABLE topic_stats ADD COLUMN {column} {db_column_type(column, column_type)}")
+
     create_index_if_not_exists(conn, "idx_articles_fingerprint", "articles", "fingerprint")
     create_index_if_not_exists(conn, "idx_articles_trend_score", "articles", "trend_score")
     create_index_if_not_exists(
@@ -457,21 +476,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-
-def is_article_exists(link):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT id FROM articles WHERE link = ?",
-        (link,)
-    )
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result is not None
 
 
 def is_article_exists_by_identity(link, fingerprint):
@@ -833,40 +837,6 @@ def update_pending_article_status(pending_id, status, failure_reason="", complet
     conn.close()
 
 
-def update_article_trend_metadata(article_id, article):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        UPDATE articles
-        SET relevance_score = ?,
-            importance_score = ?,
-            trend_score = ?,
-            ai_category = ?,
-            category = ?,
-            reason = ?,
-            trend_reason = ?,
-            trend_components = ?
-        WHERE id = ?
-        """,
-        (
-            article.get("relevance_score", 0),
-            article.get("importance_score", 0),
-            article.get("trend_score", 0),
-            article.get("ai_category", article.get("category", "")),
-            article.get("category", ""),
-            article.get("reason", ""),
-            article.get("trend_reason", ""),
-            article.get("trend_components", ""),
-            article_id,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
-
-
 def save_platform_items(platform, items):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = connect_db()
@@ -935,10 +905,15 @@ def normalize_topic_row(row):
     topic["source_count"] = int(topic.get("source_count") or topic.get("total_source_count") or 0)
     topic["trend_score_sum"] = float(topic.get("trend_score_sum") or 0)
     topic["topic_score"] = float(topic.get("topic_score") or 0)
-    topic["weekly_signal_score"] = topic["topic_score"]
     topic["articles"] = parse_json_array(topic.get("evidence_articles"))
+    stored_sources = parse_json_array(topic.get("source_names"))
     topic["sources"] = sorted(
         {
+            str(source).strip()
+            for source in stored_sources
+            if str(source or "").strip()
+        }
+        or {
             str(article.get("source")).strip()
             for article in topic["articles"]
             if isinstance(article, dict) and str(article.get("source") or "").strip()
@@ -972,10 +947,10 @@ def save_daily_topics(topic_date, topics):
             """
             INSERT INTO daily_topics (
                 topic_date, term, mention_count, source_count, article_count,
-                trend_score_sum, topic_score, reason, evidence_articles,
+                trend_score_sum, topic_score, reason, evidence_articles, source_names,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 topic_date,
@@ -987,6 +962,7 @@ def save_daily_topics(topic_date, topics):
                 float(topic.get("topic_score", 0)),
                 topic.get("reason", ""),
                 json.dumps(topic.get("articles", []), ensure_ascii=False),
+                json.dumps(topic.get("sources", []), ensure_ascii=False),
                 now,
                 now,
             ),
@@ -1012,7 +988,7 @@ def get_daily_topics(topic_date=None, limit=5):
         """
         SELECT id, topic_date, term, mention_count, source_count, article_count,
                trend_score_sum, topic_score, reason, evidence_articles,
-               created_at, updated_at
+               source_names, created_at, updated_at
         FROM daily_topics
         WHERE topic_date = ?
         ORDER BY topic_score DESC, source_count DESC, article_count DESC, term
@@ -1032,7 +1008,7 @@ def get_topic_stats(limit=5):
         """
         SELECT id, term, total_mentions, total_article_count, total_source_count,
                active_days, trend_score_sum, topic_score, first_seen_at,
-               last_seen_at, evidence_articles, created_at, updated_at
+               last_seen_at, evidence_articles, source_names, created_at, updated_at
         FROM topic_stats
         ORDER BY topic_score DESC, total_source_count DESC, total_article_count DESC, active_days DESC, term
         LIMIT ?
@@ -1052,7 +1028,7 @@ def rebuild_topic_stats():
     rows = cursor.execute(
         """
         SELECT topic_date, term, mention_count, source_count, article_count,
-               trend_score_sum, topic_score, evidence_articles
+               trend_score_sum, topic_score, evidence_articles, source_names
         FROM daily_topics
         ORDER BY topic_date ASC, topic_score DESC
         """
@@ -1061,8 +1037,11 @@ def rebuild_topic_stats():
     stats = {}
     for row in rows:
         term = row["term"]
+        key = normalize_topic_key(term)
+        if not key:
+            continue
         stat = stats.setdefault(
-            term,
+            key,
             {
                 "term": term,
                 "total_mentions": 0,
@@ -1074,28 +1053,49 @@ def rebuild_topic_stats():
                 "first_seen_at": row["topic_date"],
                 "last_seen_at": row["topic_date"],
                 "articles": [],
+                "sources": set(),
+                "active_dates": set(),
+                "best_display_score": -1.0,
             },
         )
+        row_score = float(row["topic_score"] or 0)
+        if row_score > stat["best_display_score"]:
+            stat["term"] = term
+            stat["best_display_score"] = row_score
         stat["total_mentions"] += int(row["mention_count"] or 0)
         stat["total_article_count"] += int(row["article_count"] or 0)
-        stat["total_source_count"] += int(row["source_count"] or 0)
-        stat["active_days"] += 1
+        row_articles = parse_json_array(row["evidence_articles"])
+        row_sources = parse_json_array(row["source_names"])
+        if not row_sources:
+            row_sources = [
+                article.get("source")
+                for article in row_articles
+                if isinstance(article, dict)
+            ]
+        stat["sources"].update(
+            str(source).strip()
+            for source in row_sources
+            if str(source or "").strip()
+        )
+        stat["active_dates"].add(row["topic_date"])
         stat["trend_score_sum"] += float(row["trend_score_sum"] or 0)
-        stat["topic_score"] += float(row["topic_score"] or 0)
+        stat["topic_score"] += row_score
         stat["first_seen_at"] = min(stat["first_seen_at"], row["topic_date"])
         stat["last_seen_at"] = max(stat["last_seen_at"], row["topic_date"])
-        stat["articles"].extend(parse_json_array(row["evidence_articles"])[:3])
+        stat["articles"].extend(row_articles[:3])
 
     cursor.execute("DELETE FROM topic_stats")
     for stat in stats.values():
+        stat["total_source_count"] = len(stat["sources"])
+        stat["active_days"] = len(stat["active_dates"])
         cursor.execute(
             """
             INSERT INTO topic_stats (
                 term, total_mentions, total_article_count, total_source_count,
                 active_days, trend_score_sum, topic_score, first_seen_at,
-                last_seen_at, evidence_articles, created_at, updated_at
+                last_seen_at, evidence_articles, source_names, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 stat["term"],
@@ -1108,6 +1108,7 @@ def rebuild_topic_stats():
                 stat["first_seen_at"],
                 stat["last_seen_at"],
                 json.dumps(stat["articles"][:8], ensure_ascii=False),
+                json.dumps(sorted(stat["sources"]), ensure_ascii=False),
                 now,
                 now,
             ),

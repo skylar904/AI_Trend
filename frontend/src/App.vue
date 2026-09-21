@@ -237,10 +237,6 @@ async function selectArticle(id) {
   }
 }
 
-function setSource(source) {
-  filters.source = filters.source === source ? "" : source;
-}
-
 function setCategory(category) {
   filters.category = filters.category === category ? "" : category;
 }
@@ -380,8 +376,8 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="weekly-topics" aria-label="近期焦點排行">
-      <div class="panel-heading weekly-heading">
+    <section class="cumulative-topics" aria-label="近期焦點排行">
+      <div class="panel-heading topic-heading">
         <div>
           <p class="eyebrow">Focus Signals</p>
           <h2>近期焦點 TOP 5</h2>
@@ -422,7 +418,7 @@ onMounted(async () => {
     </section>
 
     <section class="emerging-topics" aria-label="本日話題排行">
-      <div class="panel-heading weekly-heading">
+      <div class="panel-heading topic-heading">
         <div>
           <p class="eyebrow">Today Signals</p>
           <h2>本日話題 TOP 5</h2>

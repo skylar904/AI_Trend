@@ -106,14 +106,6 @@ summary {
   line-height: 1.04;
 }
 
-.hero-subtitle {
-  max-width: 680px;
-  margin: 18px 0 0;
-  color: var(--muted-strong);
-  font-size: 17px;
-  line-height: 1.75;
-}
-
 .hero-status {
   display: grid;
   gap: 10px;
@@ -144,7 +136,7 @@ summary {
 
 .metric,
 .project-advisor,
-.weekly-topics,
+.cumulative-topics,
 .emerging-topics,
 .platform-panel,
 .filters-panel,
@@ -192,7 +184,7 @@ summary {
 }
 
 .project-advisor,
-.weekly-topics,
+.cumulative-topics,
 .emerging-topics,
 .platform-rankings {
   margin-bottom: 18px;
@@ -222,7 +214,7 @@ summary {
 }
 
 .advisor-heading,
-.weekly-heading {
+.topic-heading {
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.94));
 }
 
@@ -752,13 +744,6 @@ summary {
   font-size: 12px;
   font-weight: 900;
   text-align: center;
-}
-
-.muted-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .chip {

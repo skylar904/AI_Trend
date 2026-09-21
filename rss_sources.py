@@ -153,39 +153,3 @@ RSS_FEEDS = [
         30,
     ),
 ]
-
-
-PLANNED_CUSTOM_SOURCES = [
-    {
-        "name": "CrewAI Blog",
-        "url": "https://crewai.com/blog",
-        "category": "AI Agent 與開發",
-        "source_group": "community",
-        "source_group_label": SOURCE_GROUPS["community"],
-        "reason": "CrewAI blog 目前沒有明確公開 RSS，適合用自訂爬蟲解析文章列表。",
-    },
-    {
-        "name": "Vercel AI SDK / Agentic Infrastructure",
-        "url": "https://vercel.com/blog",
-        "category": "AI Agent 與開發",
-        "source_group": "industry",
-        "source_group_label": SOURCE_GROUPS["industry"],
-        "reason": "Vercel blog 有大量 AI SDK、agent、workflow 內容，但 RSS 入口不穩定，適合之後改用自訂爬蟲或官方 API。",
-    },
-    {
-        "name": "LlamaIndex Blog",
-        "url": "https://www.llamaindex.ai/blog",
-        "category": "AI Agent 與開發",
-        "source_group": "community",
-        "source_group_label": SOURCE_GROUPS["community"],
-        "reason": "LlamaIndex agent 內容重要，但需確認穩定 feed 或自訂爬蟲。",
-    },
-    {
-        "name": "OpenAI Agents SDK",
-        "url": "https://openai.github.io/openai-agents-python/",
-        "category": "AI Agent 與開發",
-        "source_group": "official",
-        "source_group_label": SOURCE_GROUPS["official"],
-        "reason": "文件型來源不是 RSS，之後可做 docs crawler 或版本更新監控。",
-    },
-]

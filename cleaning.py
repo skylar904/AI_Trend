@@ -84,7 +84,34 @@ def is_probably_ai_related(article):
             article.get("category", ""),
         ]
     ).lower()
-    return any(keyword in text for keyword in AI_KEYWORDS)
+
+    for keyword in AI_KEYWORDS:
+        normalized_keyword = normalize_whitespace(keyword).lower()
+        if not normalized_keyword:
+            continue
+
+        # Short Latin keywords such as "ai" and "ml" must be whole words.
+        # A plain substring check would incorrectly accept email, detail,
+        # railway, html, and many other unrelated words.
+        if re.fullmatch(r"[a-z0-9][a-z0-9 ._+\-/]*", normalized_keyword):
+            parts = [part for part in re.split(r"[\s_\-/]+", normalized_keyword) if part]
+            pattern = r"[\s_\-/]+".join(re.escape(part) for part in parts)
+            if re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", text):
+                return True
+            continue
+
+        if normalized_keyword in text:
+            return True
+
+    return False
+
+
+def normalize_topic_key(term):
+    """Return a stable comparison key without changing the display label."""
+
+    normalized = normalize_whitespace(term).casefold()
+    normalized = re.sub(r"[\s_\-\u2010-\u2015]+", "", normalized)
+    return normalized.strip(".,:;!?()[]{}\"'")
 
 
 def dedupe_articles(articles):

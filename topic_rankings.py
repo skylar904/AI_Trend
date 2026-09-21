@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime
 
+from cleaning import normalize_topic_key
 from database import (
     get_daily_topics,
     get_topic_stats,
@@ -22,14 +23,6 @@ MAX_TOPIC_SUMMARY_CHARS = int(os.getenv("MAX_TOPIC_SUMMARY_CHARS", "520"))
 
 def normalize_text(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-def clamp_int(value):
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, number)
 
 
 def clamp_float(value):
@@ -105,32 +98,23 @@ JSON schema：
 """.strip()
 
 
-def topic_variants(term):
-    normalized = normalize_text(term).lower()
-    variants = {normalized}
-    if "-" in normalized:
-        variants.add(normalized.replace("-", " "))
-        variants.add(normalized.replace("-", ""))
-    if " " in normalized:
-        variants.add(normalized.replace(" ", "-"))
-        variants.add(normalized.replace(" ", ""))
-    variants.update({variant.replace("-", "").replace(" ", "") for variant in list(variants)})
-    return [variant for variant in variants if len(variant) >= 3]
-
-
 def topic_key(term):
-    normalized = normalize_text(term).lower()
-    normalized = re.sub(r"[_\-]+", " ", normalized)
-    normalized = re.sub(r"[^\w\s\u4e00-\u9fff]", "", normalized)
-    return normalize_text(normalized).replace(" ", "")
+    return normalize_topic_key(term)
 
 
 def calculate_topic_score(term, evidence_articles):
-    article_count = len(evidence_articles)
+    unique_article_keys = {
+        str(article.get("id") or article.get("link") or article.get("title") or "").strip()
+        for article in evidence_articles
+        if str(article.get("id") or article.get("link") or article.get("title") or "").strip()
+    }
+    article_count = len(unique_article_keys)
     source_count = len(
         {article.get("source") for article in evidence_articles if article.get("source")}
     )
-    mention_count = 0
+    # A mention means one distinct supporting article, not the number of times
+    # the phrase happens to repeat inside that article.
+    mention_count = article_count
     trend_score_sum = sum(clamp_float(article.get("trend_score")) for article in evidence_articles)
     topic_score = round(
         source_count * 10 + article_count * 8 + trend_score_sum * 0.08,
@@ -180,7 +164,7 @@ def normalize_ai_topics(data, article_lookup=None, limit=FINAL_TOPIC_LIMIT):
             continue
 
         term = normalize_text(topic.get("term", "")).strip(".,:;!?()[]{}\"'")
-        key = term.lower()
+        key = topic_key(term)
         if not term or key in seen:
             continue
         seen.add(key)
@@ -199,7 +183,6 @@ def normalize_ai_topics(data, article_lookup=None, limit=FINAL_TOPIC_LIMIT):
                 "source_count": source_count,
                 "trend_score_sum": trend_score_sum,
                 "topic_score": topic_score,
-                "weekly_signal_score": topic_score,
                 "reason": normalize_text(topic.get("reason", "")),
                 "articles": evidence_articles,
                 "sources": sorted(
@@ -258,9 +241,6 @@ def generate_batch_topics(batch_articles, article_lookup):
 
 
 def article_matches_topic(term, article):
-    variants = topic_variants(term)
-    if not variants:
-        return False
     text = normalize_text(
         " ".join(
             [
@@ -269,9 +249,28 @@ def article_matches_topic(term, article):
                 article.get("evidence", ""),
             ]
         )
-    ).lower()
-    compact_text = text.replace("-", "").replace(" ", "")
-    return any(variant in text or variant in compact_text for variant in variants)
+    ).casefold()
+    normalized_term = normalize_text(term).casefold()
+    if len(normalize_topic_key(normalized_term)) < 3:
+        return False
+
+    if re.search(r"[\u3400-\u9fff]", normalized_term):
+        return normalized_term in text
+
+    parts = [part for part in re.split(r"[\s_\-\u2010-\u2015]+", normalized_term) if part]
+    if not parts:
+        return False
+    patterns = []
+    for part in parts:
+        escaped = re.escape(part)
+        escaped = re.sub(
+            r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])",
+            r"[\\s_\\-]*",
+            escaped,
+        )
+        patterns.append(escaped)
+    pattern = r"[\s_\-\u2010-\u2015]*".join(patterns)
+    return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", text, flags=re.IGNORECASE) is not None
 
 
 def merge_seed_articles(existing, seed_articles):
@@ -313,7 +312,6 @@ def build_topic_from_candidates(term, reason, seed_articles, article_lookup):
         "source_count": source_count,
         "trend_score_sum": trend_score_sum,
         "topic_score": topic_score,
-        "weekly_signal_score": topic_score,
         "reason": reason,
         "articles": display_articles,
         "sources": sorted(
@@ -400,13 +398,7 @@ def update_topic_rankings(articles, topic_date=None, dry_run=False):
     return topics
 
 
-def refresh_topic_stats():
-    return rebuild_topic_stats()
-
-
-def get_topic_rankings(scope="all", limit=5, days=7):
+def get_topic_rankings(scope="all", limit=5):
     if scope == "today":
         return get_daily_topics(topic_date_today(), limit)
-    if scope == "recent":
-        return get_daily_topics(None, limit)
     return get_topic_stats(limit)
