@@ -312,8 +312,7 @@ summary {
   gap: 12px;
 }
 
-.advisor-cards article,
-.trend-box {
+.advisor-cards article {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-subtle);
@@ -447,11 +446,33 @@ summary {
   font-size: 12px;
 }
 
-.topic-line strong,
-.emerging-item > strong {
-  color: var(--accent);
-  font-size: 23px;
+.topic-search-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border: 1px solid rgba(15, 143, 124, 0.3);
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-size: 12px;
+  font-weight: 900;
   line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: 150ms ease;
+}
+
+.topic-search-link:hover {
+  border-color: var(--accent);
+  background: #d5f2ec;
+  transform: translateY(-1px);
+}
+
+.topic-search-link:focus-visible {
+  outline: 3px solid rgba(15, 143, 124, 0.2);
+  outline-offset: 2px;
 }
 
 .bar-track {
@@ -851,17 +872,6 @@ summary {
   font-weight: 900;
 }
 
-.score-badge {
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  border: 1px solid rgba(15, 143, 124, 0.28);
-  border-radius: 8px;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .article-card h3 {
   margin: 0 0 10px;
   color: var(--ink-strong);
@@ -931,41 +941,6 @@ summary {
 .article-detail a:hover {
   background: var(--accent-strong);
   transform: translateY(-1px);
-}
-
-.trend-box {
-  margin: 0 0 24px;
-  padding: 17px;
-}
-
-.trend-box > div:first-child {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.trend-box span {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.trend-box strong {
-  color: var(--accent);
-  font-size: 27px;
-}
-
-.star-rating {
-  letter-spacing: 2px;
-  white-space: nowrap;
-}
-
-.trend-box p {
-  margin: 0 0 14px;
-  color: var(--ink);
-  line-height: 1.75;
 }
 
 .summary {
@@ -1051,7 +1026,7 @@ summary {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
-  .emerging-item > strong,
+  .emerging-item > .topic-search-link,
   .ranking-metric {
     justify-self: start;
     grid-column: 2;

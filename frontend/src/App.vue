@@ -113,15 +113,14 @@ function summaryBlocks(markdown) {
   return blocks;
 }
 
-function importanceStars(value) {
-  const score = Number(value || 0);
-  const level = Math.max(0, Math.min(5, Math.ceil(score / 20)));
-  return "★".repeat(level) + "☆".repeat(5 - level);
-}
-
 function formatPlatformMetric(value) {
   const number = Number(value || 0);
   return new Intl.NumberFormat("en-US", { notation: "compact" }).format(number);
+}
+
+function topicSearchUrl(term) {
+  const query = String(term || "").trim();
+  return `https://www.google.com/search?hl=zh-TW&q=${encodeURIComponent(query)}`;
 }
 
 function sourceTypeLabel(type) {
@@ -402,7 +401,15 @@ onMounted(async () => {
                   {{ topic.source_count }} 個來源 / {{ topic.article_count }} 篇文章
                 </p>
               </div>
-              <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
+              <a
+                class="topic-search-link"
+                :href="topicSearchUrl(topic.term)"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`搜尋 ${topic.term} 的更多資訊`"
+              >
+                了解更多 <span aria-hidden="true">↗</span>
+              </a>
             </div>
             <div class="bar-track" aria-hidden="true">
               <span :style="{ width: `${Math.max(topic.share || 0, 4)}%` }"></span>
@@ -435,7 +442,15 @@ onMounted(async () => {
               <span>{{ topic.article_count }} 篇文章</span>
             </div>
           </div>
-          <strong>{{ Number(topic.topic_score || 0).toFixed(1) }}</strong>
+          <a
+            class="topic-search-link"
+            :href="topicSearchUrl(topic.term)"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="`搜尋 ${topic.term} 的更多資訊`"
+          >
+            了解更多 <span aria-hidden="true">↗</span>
+          </a>
         </article>
       </div>
     </section>
@@ -624,7 +639,6 @@ onMounted(async () => {
           >
             <div class="card-topline">
               <span class="source">資料來源：{{ article.source }}</span>
-              <span class="score-badge">重要度 {{ importanceStars(article.trend_score) }}</span>
             </div>
             <h3>{{ article.title }}</h3>
             <p>{{ plainPreview(article.preview) }}</p>
@@ -647,14 +661,6 @@ onMounted(async () => {
           </div>
           <h2>{{ selectedArticle.title }}</h2>
           <a :href="selectedArticle.link" target="_blank" rel="noreferrer">閱讀原文</a>
-
-          <section class="trend-box" aria-label="重要度">
-            <div>
-              <span>重要度</span>
-              <strong class="star-rating">{{ importanceStars(selectedArticle.trend_score) }}</strong>
-            </div>
-            <p>依文章重要性與來源權重評估。</p>
-          </section>
 
           <div class="summary">
             <template
