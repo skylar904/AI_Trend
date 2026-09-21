@@ -386,7 +386,6 @@ onMounted(async () => {
           <p class="eyebrow">Focus Signals</p>
           <h2>近期焦點 TOP 5</h2>
         </div>
-        <span>每日累積</span>
       </div>
 
       <p v-if="!recentFocusTopics.length" class="notice">尚無近期焦點資料。</p>
@@ -428,7 +427,6 @@ onMounted(async () => {
           <p class="eyebrow">Today Signals</p>
           <h2>本日話題 TOP 5</h2>
         </div>
-        <span>今日新增</span>
       </div>
 
       <p v-if="!todayTopics.length" class="notice">尚無本日話題資料。</p>
